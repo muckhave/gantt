@@ -1,0 +1,73 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: 'Helvetica Neue', Arial, 'Hiragino Kaku Gothic ProN', 'Hiragino Sans', sans-serif;
+  
+  --color-bg: var(--bg);
+  --color-sidebar: var(--sidebar);
+  --color-surface: var(--surface);
+  --color-border: var(--border);
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-accent: var(--accent);
+  --color-text-on-accent: var(--text-on-accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-holiday: var(--holiday);
+  --color-weekend: var(--weekend);
+}
+
+:root {
+  --bg: #121212;
+  --sidebar: #1a1a1a;
+  --surface: #242424;
+  --border: #333333;
+  --text-primary: #e0e0e0;
+  --text-secondary: #999999;
+  --accent: #4da6ff;
+  --text-on-accent: #000000;
+  --accent-soft: rgba(77, 166, 255, 0.15);
+  --holiday: #3d2b2b;
+  --weekend: #2a2a2a;
+}
+
+[data-theme='light'] {
+  --bg: #ffffff;
+  --sidebar: #f8f9fa;
+  --surface: #f1f3f5;
+  --border: #dee2e6;
+  --text-primary: #1a1a1a;
+  --text-secondary: #6c757d;
+  --accent: #0066cc;
+  --text-on-accent: #ffffff;
+  --accent-soft: rgba(0, 102, 204, 0.1);
+  --holiday: #fff5f5;
+  --weekend: #f1f3f5;
+}
+
+@layer base {
+  body {
+    background-color: var(--color-bg);
+    color: var(--color-text-primary);
+    font-family: var(--font-sans);
+    transition: background-color 0.2s ease, color 0.2s ease;
+  }
+}
+
+/* Custom scrollbar for dark theme */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-bg);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-secondary);
+}
