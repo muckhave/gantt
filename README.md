@@ -1,20 +1,78 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# GanttFlow ローカル実行手順書
 
-# Run and deploy your AI Studio app
+このアプリ（GanttFlow）を自分のパソコン（ローカル環境）で動かすための手順書です。
+プログラムの知識がなくても、以下の手順を順番に進めることで動かすことができます。
 
-This contains everything you need to run your app locally.
+---
 
-View your app in AI Studio: https://ai.studio/apps/5df5f5c0-ca83-428d-9962-7c3e0edb493b
+## 準備するもの
 
-## Run Locally
+以下のソフトを事前にインストールしてください。
 
-**Prerequisites:**  Node.js
+### 1. Node.js（必須）
+アプリを動かすための土台となるソフトです。
+- [Node.js 公式サイト](https://nodejs.org/ja/)から **「LTS（推奨版）」** をダウンロードしてインストールしてください。
+- インストールは、すべて「次へ（Next）」で進めてOKです。
 
+### 2. Visual Studio Code（推奨）
+プログラムを確認したり、コマンドを入力したりするためのエディタです。
+- [VS Code 公式サイト](https://code.visualstudio.com/)からダウンロードしてインストールしてください。
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+---
+
+## 動かす手順（5ステップ）
+
+### ステップ1：アプリのファイルを準備する
+1. AI Studio のメニューから **「Export to GitHub」** または **「Download ZIP」** を選択して、ファイルをパソコンに保存します。
+2. ZIPでダウンロードした場合は、右クリックして **「すべて展開」** で解凍してください。
+
+### ステップ2：フォルダを VS Code で開く
+1. インストールした **Visual Studio Code** を起動します。
+2. 上のメニューの `ファイル (File)` ＞ `フォルダーを開く (Open Folder)` をクリックします。
+3. 手順1で解凍したフォルダを選んで開きます。
+
+### ステップ3：コマンド画面を表示する
+1. VS Code の上のメニューの `表示 (View)` ＞ `ターミナル (Terminal)` をクリックします。
+2. 画面の下側に、文字が入力できる黒い画面（ターミナル）が出てきます。
+
+### ステップ4：必要な部品をインストールする（初回のみ）
+1. ターミナルに以下の文字をコピーして貼り付け、**Enterキー** を押します。
+   ```bash
+   npm install
+   ```
+2. 数分かかります。終わるまで待ちます。
+
+### ステップ5：アプリを起動する
+1. ターミナルに以下の文字を入力して、**Enterキー** を押します。
+   ```bash
+   npm run dev
+   ```
+2. 画面に `Server running on http://localhost:3000` と表示されたら成功です！
+
+---
+
+## アプリを見る方法
+1. Google Chrome などのブラウザを開きます。
+2. アドレスバーに以下のURLを入力します。
+   ```text
+   http://localhost:3000
+   ```
+3. あなたのパソコン上でアプリが動き始めます。
+
+---
+
+## 終わるとき
+1. アプリを止めたいときは、VS Code のターミナル画面で **`Ctrl` キーを押しながら `C`** を押してください。
+2. VS Code を閉じれば終了です。
+
+次にまた動かしたいときは、**「ステップ2」「ステップ3」「ステップ5」** を行うだけで動きます。
+
+---
+
+## データのバックアップについて
+登録したタスクや祝日のデータは、フォルダ内の `data` というフォルダの中に **CSVファイル** として保存されます。
+- `tasks.csv`: タスクのデータ
+- `holidays.csv`: 祝日のデータ
+- `templates.csv`: テンプレートのデータ
+
+ファイルを別の場所にコピーしておけば、バックアップとして保存しておくことができます。
