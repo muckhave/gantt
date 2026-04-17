@@ -10,7 +10,7 @@ import {
   endOfMonth,
   isWeekend
 } from 'date-fns';
-import { Task, Holiday, RecurrenceRule, getFirstBusinessDayOfMonth, getLastBusinessDayOfMonth, isBusinessDay, isHoliday } from './types';
+import { Task, Holiday, RecurrenceRule, getFirstBusinessDayOfMonth, getLastBusinessDayOfMonth, isBusinessDay, isHoliday, calculateEndDate } from './types';
 
 /**
  * Calculates scheduled dates for a task within a window.
@@ -26,29 +26,25 @@ export const calculateTaskInstances = (
   const { recurrence, leadTime } = task;
 
   if (recurrence.type === 'none') {
-    // Non-recurring tasks might have a fixed start date
     const start = task.baseDate ? new Date(task.baseDate) : new Date(task.createdAt);
+    if (isNaN(start.getTime())) return [];
+
+    const end = calculateEndDate(start, leadTime, holidays);
     
-    // Check if it fits in the view
-    if (start >= viewStart && start <= viewEnd) {
-      let currentEnd = start;
-      let businessDaysCount = 0;
-      while (businessDaysCount < leadTime) {
-        currentEnd = addDays(currentEnd, 1);
-        if (isBusinessDay(currentEnd, holidays)) {
-          businessDaysCount++;
-        }
-      }
-      instances.push({ start, end: currentEnd });
+    // Check overlap
+    if (start <= viewEnd && end >= viewStart) {
+      instances.push({ start, end });
     }
     return instances;
   }
 
   // Iterate through the visible window to find matches
+  // For recurring tasks, we still want to calculate end date for each instance
   const days = eachDayOfInterval({ start: viewStart, end: viewEnd });
 
   days.forEach(day => {
     let matches = false;
+    // ... (rest of recurrence logic remains same, we'll keep the existing matching logic)
 
     if (recurrence.type === 'weekly' && recurrence.weeklyDays) {
       if (recurrence.weeklyDays.includes(day.getDay())) {
@@ -141,18 +137,7 @@ export const calculateTaskInstances = (
     }
 
     if (matches) {
-      // Basic lead time: simple day offset.
-      // Sophisticated: lead output might exclude non-business days.
-      // Let's implement "lead time in business days"
-      let currentEnd = day;
-      let businessDaysCount = 0;
-      while (businessDaysCount < leadTime) {
-        currentEnd = addDays(currentEnd, 1);
-        if (isBusinessDay(currentEnd, holidays)) {
-          businessDaysCount++;
-        }
-      }
-      instances.push({ start: day, end: currentEnd });
+      instances.push({ start: day, end: calculateEndDate(day, leadTime, holidays) });
     }
   });
 

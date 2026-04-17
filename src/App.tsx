@@ -28,7 +28,10 @@ import {
   Trash2, 
   CheckCircle2, 
   Circle,
-  GripVertical
+  GripVertical,
+  X,
+  HelpCircle,
+  Layers
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Sun, Moon } from 'lucide-react';
@@ -41,7 +44,9 @@ import {
   isBusinessDay, 
   TaskTemplateSet, 
   TemplateItem, 
-  subBusinessDays 
+  subBusinessDays,
+  addBusinessDays,
+  calculateEndDate 
 } from './types';
 import { cn, generateId, COLORS } from './lib/utils';
 import { calculateTaskInstances } from './scheduler';
@@ -278,6 +283,124 @@ const RecurrenceOptions = ({
   );
 };
 
+const TemplatePreview: React.FC<{ items: TemplateItem[]; baseType: 'deadline' | 'start-date' }> = ({ items, baseType }) => {
+  const resolveItems = (): (TemplateItem & { start: number; end: number; level: number })[] => {
+    const resolved = new Map<string, { start: number; end: number; level: number }>();
+    const pending = [...items];
+    let progress = true;
+
+    while (pending.length > 0 && progress) {
+      progress = false;
+      for (let i = 0; i < pending.length; i++) {
+        const item = pending[i];
+        if (!item.parentId || resolved.has(item.parentId)) {
+          let ref: number;
+          let level: number = 0;
+
+          if (!item.parentId) {
+            ref = 0; // Base Date is Day 0
+          } else {
+            const parent = resolved.get(item.parentId)!;
+            ref = item.parentPoint === 'start' ? parent.start : parent.end;
+            level = parent.level + 1;
+          }
+
+          const offset = item.offsetDirection === 'before' ? -item.offsetDays : item.offsetDays;
+          const targetPoint = ref + offset;
+
+          let start: number;
+          let end: number;
+
+          if (item.targetPoint === 'start') {
+            start = targetPoint;
+            end = start + item.leadTime;
+          } else {
+            end = targetPoint;
+            start = end - item.leadTime;
+          }
+
+          resolved.set(item.id, { start, end, level });
+          pending.splice(i, 1);
+          i--;
+          progress = true;
+        }
+      }
+    }
+
+    return items.map(item => ({
+      ...item,
+      ...(resolved.get(item.id) || { start: 0, end: 1, level: 0 })
+    }));
+  };
+
+  const resolvedItems = resolveItems();
+  
+  if (resolvedItems.length === 0) return null;
+
+  const minDay = Math.min(0, ...resolvedItems.map(i => i.start));
+  const maxDay = Math.max(0, ...resolvedItems.map(i => i.end));
+  const range = maxDay - minDay || 1;
+  const padding = range * 0.1;
+
+  const getX = (day: number) => {
+    return `${((day - minDay + padding) / (range + padding * 2)) * 100}%`;
+  };
+
+  return (
+    <div className="bg-bg/50 border border-border rounded-xl p-6 space-y-4">
+      <div className="flex items-center justify-between">
+        <h3 className="text-[10px] font-bold uppercase text-text-secondary tracking-widest">{t.templatePreview}</h3>
+        <span className={cn(
+          "px-2 py-0.5 rounded text-[8px] font-bold uppercase",
+          baseType === 'deadline' ? "bg-red-400/10 text-red-400" : "bg-green-400/10 text-green-400"
+        )}>
+          {baseType === 'deadline' ? t.deadlineBase : t.startDateBase}
+        </span>
+      </div>
+
+      <div className="relative h-48 overflow-y-auto custom-scrollbar pr-2">
+        <div className="absolute top-0 bottom-0 w-px bg-accent z-10" style={{ left: getX(0) }}>
+          <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-accent text-text-on-accent text-[8px] px-1 rounded whitespace-nowrap font-bold">
+            {t.baseDatePoint}
+          </div>
+        </div>
+
+        <div className="space-y-2 pt-4">
+          {resolvedItems.map((item, idx) => (
+            <div key={item.id} className="relative h-6 flex items-center group">
+              <div 
+                className="absolute h-4 rounded bg-accent/20 border border-accent/40 flex items-center px-2 min-w-[4px] transition-all"
+                style={{ 
+                  left: getX(item.start), 
+                  width: `${((item.end - item.start) / (range + padding * 2)) * 100}%` 
+                }}
+              >
+                <span className="text-[8px] font-bold text-text-primary whitespace-nowrap overflow-hidden text-ellipsis opacity-0 group-hover:opacity-100 transition-opacity">
+                  {item.title}
+                </span>
+                
+                {/* Visual indicator for parent-child relationship */}
+                {item.parentId && (
+                  <div 
+                    className="absolute -left-1 top-1/2 -translate-y-1/2 w-1 h-1 rounded-full bg-accent"
+                    title={`Linked to parent at Day ${item.start - item.leadTime}`}
+                  />
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* X-Axis labels */}
+        <div className="absolute bottom-0 left-0 right-0 flex justify-between border-t border-border/50 pt-1">
+          <span className="text-[8px] text-text-secondary">{Math.floor(minDay)}d</span>
+          <span className="text-[8px] text-text-secondary">{Math.floor(maxDay)}d</span>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const TemplateManager: React.FC<{
   templates: TaskTemplateSet[];
   onSave: (templates: TaskTemplateSet[]) => void;
@@ -286,7 +409,7 @@ const TemplateManager: React.FC<{
   const [editingTemplate, setEditingTemplate] = useState<TaskTemplateSet | null>(null);
 
   const handleAddTemplate = () => {
-    setEditingTemplate({ id: generateId(), name: 'New Template', items: [] });
+    setEditingTemplate({ id: generateId(), name: 'New Template', items: [], baseType: 'deadline' });
   };
 
   const handleSaveEditing = () => {
@@ -307,163 +430,345 @@ const TemplateManager: React.FC<{
       <motion.div 
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
-        className="w-full max-w-2xl bg-surface border border-border rounded-xl shadow-2xl p-8 flex flex-col max-h-[80vh]"
+        className={cn(
+          "w-full bg-surface border border-border rounded-xl shadow-2xl p-8 flex flex-col max-h-[90vh] transition-all",
+          editingTemplate ? "max-w-6xl" : "max-w-2xl"
+        )}
       >
-        <div className="flex items-center justify-between mb-6">
-          <h2 className="text-xl font-bold text-text-primary">{t.templateManage}</h2>
-          {!editingTemplate && (
+        <div className="flex items-center justify-between mb-8 border-b border-border pb-6">
+          <div className="flex items-center gap-4">
+            <h2 className="text-xl font-bold text-text-primary">{t.templateManage}</h2>
+            {editingTemplate && (
+              <span className="text-[10px] font-bold px-2 py-1 bg-accent/10 text-accent rounded uppercase">
+                Editing: {editingTemplate.name}
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-3">
+            {!editingTemplate && (
+              <button 
+                onClick={handleAddTemplate}
+                className="px-4 py-2 bg-accent text-text-on-accent text-[11px] font-bold uppercase rounded hover:brightness-110 shadow-lg shadow-accent/20"
+              >
+                {t.newTemplate}
+              </button>
+            )}
             <button 
-              onClick={handleAddTemplate}
-              className="px-4 py-2 bg-accent text-text-on-accent text-[11px] font-bold uppercase rounded hover:brightness-110"
+              onClick={onClose}
+              className="p-2 text-text-secondary hover:text-text-primary transition-colors"
             >
-              {t.newTemplate}
+              <X size={20} />
             </button>
-          )}
+          </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto min-h-0 space-y-4 pr-2">
+        <div className="flex-1 overflow-y-auto min-h-0 pr-2 custom-scrollbar">
           {editingTemplate ? (
-            <div className="space-y-6">
-              <div>
-                <label className="block text-[10px] font-bold uppercase text-text-secondary mb-2">{t.templateName}</label>
-                <input 
-                  value={editingTemplate.name}
-                  onChange={e => setEditingTemplate({...editingTemplate, name: e.target.value})}
-                  className="w-full bg-bg border border-border rounded px-4 py-3 text-text-primary"
-                />
-              </div>
-
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <label className="text-[10px] font-bold uppercase text-text-secondary tracking-widest">{t.templateItems}</label>
-                  <button 
-                    onClick={() => {
-                      const newItem: TemplateItem = { id: generateId(), title: 'Subtask', parentId: null, daysBeforeDeadline: 0, leadTime: 1 };
-                      setEditingTemplate({...editingTemplate, items: [...editingTemplate.items, newItem]});
-                    }}
-                    className="text-[10px] text-accent font-bold hover:underline"
-                  >
-                    + {t.addTemplateItem}
-                  </button>
+            <div className="flex flex-col lg:flex-row gap-8">
+              <div className="flex-1 space-y-6 pb-8">
+                <div>
+                  <label className="block text-[10px] font-bold uppercase text-text-secondary mb-2 tracking-widest">{t.templateName}</label>
+                  <input 
+                    value={editingTemplate.name}
+                    onChange={e => setEditingTemplate({...editingTemplate, name: e.target.value})}
+                    className="w-full bg-bg border border-border rounded-xl px-4 py-4 text-text-primary outline-none focus:border-accent transition-all text-sm font-medium"
+                    placeholder="Enter template name..."
+                  />
                 </div>
-                
+
+                <div>
+                  <label className="block text-[10px] font-bold uppercase text-text-secondary mb-2 tracking-widest">{t.templateBaseType}</label>
+                  <div className="flex gap-2 p-1 bg-bg border border-border rounded-xl">
+                    {(['deadline', 'start-date'] as const).map(type => (
+                      <button
+                        key={type}
+                        type="button"
+                        onClick={() => {
+                          const items = editingTemplate.items.map(item => ({
+                            ...item,
+                            parentPoint: type === 'deadline' ? 'deadline' : ('start' as const),
+                            offsetDirection: type === 'deadline' ? 'before' : ('after' as const),
+                            targetPoint: type === 'deadline' ? 'deadline' : ('start' as const)
+                          }));
+                          setEditingTemplate({...editingTemplate, baseType: type, items});
+                        }}
+                        className={cn(
+                          "flex-1 py-3 text-[10px] font-bold uppercase rounded-lg transition-all",
+                          editingTemplate.baseType === type 
+                            ? "bg-accent text-text-on-accent shadow-lg shadow-accent/20 scale-[1.02]" 
+                            : "text-text-secondary hover:text-text-primary"
+                        )}
+                      >
+                        {type === 'deadline' ? t.deadlineBase : t.startDateBase}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
                 <div className="space-y-4">
-                  {editingTemplate.items.map((item, idx) => (
-                    <div key={item.id} className="relative p-6 bg-bg border border-border rounded-xl space-y-4 group">
-                      <div className="flex items-center gap-4">
-                        <label className="w-32 flex-shrink-0 text-[10px] font-bold uppercase text-text-secondary tracking-widest">{t.title}</label>
-                        <input 
-                          value={item.title}
-                          onChange={e => {
-                            const items = [...editingTemplate.items];
-                            items[idx] = {...item, title: e.target.value};
-                            setEditingTemplate({...editingTemplate, items});
-                          }}
-                          className="flex-1 bg-surface border border-border rounded-lg px-4 py-2 text-xs text-text-primary focus:border-accent outline-none transition-colors"
-                        />
-                      </div>
+                  <div className="flex items-center justify-between">
+                    <label className="text-[10px] font-bold uppercase text-text-secondary tracking-widest">{t.templateItems}</label>
+                    <button 
+                      onClick={() => {
+                        const isDeadline = editingTemplate.baseType === 'deadline';
+                        const newItem: TemplateItem = { 
+                          id: generateId(), 
+                          title: 'Subtask', 
+                          parentId: null, 
+                          offsetDays: 0, 
+                          offsetDirection: isDeadline ? 'before' : 'after',
+                          parentPoint: isDeadline ? 'deadline' : 'start',
+                          targetPoint: isDeadline ? 'deadline' : 'start',
+                          leadTime: 1 
+                        };
+                        setEditingTemplate({...editingTemplate, items: [...editingTemplate.items, newItem]});
+                      }}
+                      className="text-[10px] text-accent font-bold hover:underline py-1 px-2 bg-accent/5 rounded flex items-center gap-1 transition-colors hover:bg-accent/10"
+                    >
+                      <Plus size={12} /> {t.addTemplateItem}
+                    </button>
+                  </div>
+                  
+                  <div className="space-y-6">
+                    {editingTemplate.items.map((item, idx) => (
+                      <div key={item.id} className="relative p-6 bg-surface border border-border rounded-2xl space-y-4 group/item hover:border-accent/40 transition-all">
+                        <div className="flex items-center gap-4">
+                          <label className="w-24 flex-shrink-0 text-[10px] font-bold uppercase text-text-secondary tracking-widest">{t.title}</label>
+                          <input 
+                            value={item.title}
+                            onChange={e => {
+                              const items = [...editingTemplate.items];
+                              items[idx] = {...item, title: e.target.value};
+                              setEditingTemplate({...editingTemplate, items});
+                            }}
+                            className="flex-1 bg-bg border border-border rounded-lg px-4 py-2 text-xs text-text-primary focus:border-accent outline-none transition-colors"
+                          />
+                        </div>
 
-                      <div className="flex items-center gap-4">
-                        <label className="w-32 flex-shrink-0 text-[10px] font-bold uppercase text-text-secondary tracking-widest">{t.parentContext}</label>
-                        <select
-                          value={item.parentId || ''}
-                          onChange={e => {
-                            const items = [...editingTemplate.items];
-                            items[idx] = {...item, parentId: e.target.value || null};
-                            setEditingTemplate({...editingTemplate, items});
+                        <div className="flex items-center gap-4">
+                          <label className="w-24 flex-shrink-0 text-[10px] font-bold uppercase text-text-secondary tracking-widest">{t.parentContext}</label>
+                          <select
+                            value={item.parentId || ''}
+                            onChange={e => {
+                              const items = [...editingTemplate.items];
+                              items[idx] = {...item, parentId: e.target.value || null};
+                              setEditingTemplate({...editingTemplate, items});
+                            }}
+                            className="flex-1 bg-bg border border-border rounded-lg px-4 py-2 text-xs text-text-primary cursor-pointer outline-none transition-colors focus:border-accent appearance-none"
+                          >
+                            <option value="">(Base Date)</option>
+                            {editingTemplate.items.filter(i => i.id !== item.id).map(i => (
+                              <option key={i.id} value={i.id}>{i.title}</option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div className="p-4 bg-bg rounded-xl border border-border space-y-4">
+                          <div className="flex items-center gap-4">
+                            <label className="w-24 flex-shrink-0 text-[10px] font-bold uppercase text-text-secondary tracking-widest">{t.calcBase}</label>
+                            <div className="flex-1 flex gap-2 items-center">
+                              <span className="text-[10px] font-bold uppercase text-text-primary whitespace-nowrap">
+                                {editingTemplate.baseType === 'deadline' ? t.parentPoint + t.deadlinePoint : t.parentPoint + t.startPoint}
+                              </span>
+                              <span className="text-text-secondary text-[10px]">の</span>
+                              <div className="flex bg-surface rounded p-0.5 border border-border">
+                                <input 
+                                  type="number" 
+                                  min="0"
+                                  value={item.offsetDays} 
+                                  onChange={e => {
+                                    const items = [...editingTemplate.items];
+                                    items[idx] = {...item, offsetDays: Math.max(0, parseInt(e.target.value) || 0)};
+                                    setEditingTemplate({...editingTemplate, items});
+                                  }}
+                                  className="w-12 bg-transparent text-center text-[10px] font-bold outline-none" 
+                                />
+                              </div>
+                              <span className="text-text-secondary text-[10px]">営業日</span>
+                              <select 
+                                value={item.offsetDirection}
+                                onChange={e => {
+                                  const items = [...editingTemplate.items];
+                                  items[idx] = {...item, offsetDirection: e.target.value as any};
+                                  setEditingTemplate({...editingTemplate, items});
+                                }}
+                                className="bg-surface border border-border rounded px-2 py-1 text-[10px] uppercase font-bold"
+                              >
+                                <option value="after">{t.offsetAfter}</option>
+                                <option value="before">{t.offsetBefore}</option>
+                              </select>
+                              <span className="text-text-secondary text-[10px]">が</span>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-4">
+                            <div className="w-24" />
+                            <div className="flex-1 flex gap-2 items-center">
+                              <span className="text-text-secondary text-[10px]">{t.targetPoint}</span>
+                              <select 
+                                value={item.targetPoint}
+                                onChange={e => {
+                                  const items = [...editingTemplate.items];
+                                  items[idx] = {...item, targetPoint: e.target.value as any};
+                                  setEditingTemplate({...editingTemplate, items});
+                                }}
+                                className="bg-accent/10 border border-accent/20 text-accent rounded px-2 py-1 text-[10px] uppercase font-bold"
+                              >
+                                <option value="start">{t.startPoint}</option>
+                                <option value="deadline">{t.deadlinePoint}</option>
+                              </select>
+                              <span className="text-text-secondary text-[10px]">になる</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-4">
+                          <label className="w-24 flex-shrink-0 text-[10px] font-bold uppercase text-text-secondary tracking-widest">{t.leadTimeDays}</label>
+                          <input 
+                            type="number"
+                            value={item.leadTime}
+                            onChange={e => {
+                              const items = [...editingTemplate.items];
+                              items[idx] = {...item, leadTime: parseInt(e.target.value) || 0};
+                              setEditingTemplate({...editingTemplate, items});
+                            }}
+                            className="flex-1 bg-bg border border-border rounded-lg px-4 py-2 text-xs text-text-primary outline-none focus:border-accent transition-colors"
+                          />
+                        </div>
+
+                        <button 
+                          onClick={() => {
+                            setEditingTemplate({...editingTemplate, items: editingTemplate.items.filter(i => i.id !== item.id)});
                           }}
-                          className="flex-1 bg-surface border border-border rounded-lg px-4 py-2 text-xs text-text-primary cursor-pointer outline-none transition-colors focus:border-accent"
+                          className="absolute -top-3 -right-3 bg-surface border border-border text-text-secondary hover:text-red-400 p-2.5 rounded-full shadow-xl opacity-0 group-hover/item:opacity-100 transition-all z-10 hover:scale-110 active:scale-95 border-red-400/20"
                         >
-                          <option value="">(Root)</option>
-                          {editingTemplate.items.filter(i => i.id !== item.id).map(i => (
-                            <option key={i.id} value={i.id}>{i.title}</option>
-                          ))}
-                        </select>
+                          <Trash2 size={14} />
+                        </button>
                       </div>
+                    ))}
+                  </div>
 
-                      <div className="flex items-center gap-4">
-                        <label className="w-32 flex-shrink-0 text-[10px] font-bold uppercase text-text-secondary tracking-widest">{t.daysBefore}</label>
-                        <input 
-                          type="number"
-                          value={item.daysBeforeDeadline}
-                          onChange={e => {
-                            const items = [...editingTemplate.items];
-                            items[idx] = {...item, daysBeforeDeadline: parseInt(e.target.value) || 0};
-                            setEditingTemplate({...editingTemplate, items});
-                          }}
-                          className="flex-1 bg-surface border border-border rounded-lg px-4 py-2 text-xs text-text-primary outline-none focus:border-accent transition-colors"
-                        />
-                      </div>
-
-                      <div className="flex items-center gap-4">
-                        <label className="w-32 flex-shrink-0 text-[10px] font-bold uppercase text-text-secondary tracking-widest">{t.leadTimeDays}</label>
-                        <input 
-                          type="number"
-                          value={item.leadTime}
-                          onChange={e => {
-                            const items = [...editingTemplate.items];
-                            items[idx] = {...item, leadTime: parseInt(e.target.value) || 0};
-                            setEditingTemplate({...editingTemplate, items});
-                          }}
-                          className="flex-1 bg-surface border border-border rounded-lg px-4 py-2 text-xs text-text-primary outline-none focus:border-accent transition-colors"
-                        />
-                      </div>
-
+                  {editingTemplate.items.length === 0 && (
+                    <div className="py-20 text-center border-2 border-dashed border-border rounded-2xl bg-bg/20">
+                      <p className="text-[11px] text-text-secondary uppercase tracking-widest mb-4 opacity-50">No items defined</p>
                       <button 
                         onClick={() => {
-                          setEditingTemplate({...editingTemplate, items: editingTemplate.items.filter(i => i.id !== item.id)});
+                          const isDeadline = editingTemplate.baseType === 'deadline';
+                          const newItem: TemplateItem = { id: generateId(), title: 'First Task', parentId: null, offsetDays: 0, offsetDirection: isDeadline ? 'before' : 'after', parentPoint: isDeadline ? 'deadline' : 'start', targetPoint: isDeadline ? 'deadline' : 'start', leadTime: 1 };
+                          setEditingTemplate({...editingTemplate, items: [newItem]});
                         }}
-                        className="absolute -top-2 -right-2 bg-bg border border-border text-text-secondary hover:text-red-400 p-2 rounded-full shadow-lg opacity-0 group-hover:opacity-100 transition-all z-10"
+                        className="text-xs text-accent font-bold px-6 py-3 border border-accent/20 rounded-xl hover:bg-accent/5 transition-colors"
                       >
-                        <Trash2 size={14} />
+                        Add your first item
                       </button>
                     </div>
-                  ))}
+                  )}
+                </div>
+
+                <div className="flex gap-4 sticky bottom-0 bg-surface pt-4 pb-1 border-t border-border z-20">
+                  <button 
+                    onClick={handleSaveEditing}
+                    className="flex-1 bg-accent text-text-on-accent py-4 rounded-xl text-[11px] font-bold uppercase shadow-xl shadow-accent/20 hover:brightness-110 active:scale-[0.98] transition-all"
+                  >
+                    {t.saveTemplate}
+                  </button>
+                  <button 
+                    onClick={() => setEditingTemplate(null)}
+                    className="px-8 py-4 bg-bg border border-border rounded-xl text-[11px] font-bold uppercase text-text-secondary hover:bg-white/5 transition-all"
+                  >
+                    {t.discard}
+                  </button>
                 </div>
               </div>
 
-              <div className="flex gap-4 pt-4 border-t border-border">
-                <button 
-                  onClick={handleSaveEditing}
-                  className="flex-1 bg-accent text-text-on-accent py-3 rounded text-[11px] font-bold uppercase"
-                >
-                  {t.saveTemplate}
-                </button>
-                <button 
-                  onClick={() => setEditingTemplate(null)}
-                  className="px-6 py-3 border border-border rounded text-[11px] font-bold uppercase text-text-secondary"
-                >
-                  {t.discard}
-                </button>
+              {/* Right Column: Sticky Preview */}
+              <div className="lg:w-[420px] flex flex-col gap-6">
+                <div className="sticky top-0 space-y-6">
+                  <TemplatePreview items={editingTemplate.items} baseType={editingTemplate.baseType} />
+                  
+                  <div className="bg-accent/5 border border-accent/10 rounded-2xl p-6 space-y-4">
+                    <div className="flex items-center gap-2">
+                       <HelpCircle size={16} className="text-accent" />
+                       <h4 className="text-[10px] font-bold uppercase text-text-primary tracking-widest">Guide</h4>
+                    </div>
+                    <p className="text-[11px] leading-relaxed text-text-secondary italic opacity-80 decoration-accent/20">
+                      {editingTemplate.baseType === 'deadline' 
+                        ? "締め切り日（基準日）に向かって、各タスクをボトムアップで積み上げます。日数は基準日から「遡る（前）」形で設定されます。"
+                        : "開始日（基準日）から順次スケジュールを組み立てます。日数は基準日から「進む（後）」形で設定されます。"}
+                    </p>
+                    <div className="flex flex-col gap-2 pt-2">
+                      <div className="flex items-center gap-3 text-[10px] text-text-secondary">
+                        <div className="w-1.5 h-1.5 rounded-full bg-accent" />
+                        <span>垂直線は基準日（Day 0）を示します</span>
+                      </div>
+                      <div className="flex items-center gap-3 text-[10px] text-text-secondary">
+                        <div className="w-1.5 h-1.5 rounded-full bg-accent/20 border border-accent/40" />
+                        <span>バーの長さはリードタイム（期間）です</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           ) : (
-            <div className="space-y-2">
+            <div className="space-y-4">
               {templates.map(tmp => (
-                <div key={tmp.id} className="group flex items-center justify-between p-4 bg-bg border border-border rounded-lg hover:border-accent/40 transition-colors">
-                  <div>
-                    <h3 className="font-bold text-sm text-text-primary">{tmp.name}</h3>
-                    <p className="text-[10px] text-text-secondary opacity-60 font-mono uppercase">{tmp.items.length} Tasks</p>
-                  </div>
-                  <div className="flex gap-2">
-                    <button 
-                      onClick={() => setEditingTemplate(tmp)}
-                      className="p-2 text-text-secondary hover:text-accent transition-colors"
-                    >
-                      <Settings size={14} />
-                    </button>
-                    <button 
-                      onClick={() => handleDelete(tmp.id)}
-                      className="p-2 text-text-secondary hover:text-red-400 transition-colors"
-                    >
-                      <Trash2 size={14} />
-                    </button>
+                <div key={tmp.id} className="group relative p-6 bg-surface border border-border rounded-2xl hover:border-accent/40 transition-all hover:scale-[1.01] active:scale-[0.99] cursor-pointer shadow-sm hover:shadow-xl" onClick={() => setEditingTemplate(tmp)}>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="font-bold text-lg text-text-primary mb-2 group-hover:text-accent transition-colors">{tmp.name}</h3>
+                      <div className="flex gap-3">
+                        <div className="flex items-center gap-1.5 px-3 py-1 bg-bg border border-border rounded-full">
+                          <Layers size={10} className="text-text-secondary" />
+                          <span className="text-[10px] text-text-secondary uppercase font-bold tracking-wider">{tmp.items.length} Tasks</span>
+                        </div>
+                        <div className={cn(
+                          "flex items-center gap-1.5 px-3 py-1 rounded-full border",
+                          tmp.baseType === 'deadline' 
+                            ? "bg-red-400/5 border-red-400/10 text-red-400" 
+                            : "bg-green-400/5 border-green-400/10 text-green-400"
+                        )}>
+                          <Clock size={10} />
+                          <span className="text-[10px] uppercase font-bold tracking-wider">
+                            {tmp.baseType === 'deadline' ? 'Reverse-Calculated' : 'Forward-Scheduled'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                       <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setEditingTemplate(tmp);
+                        }}
+                        className="p-3 bg-bg border border-border rounded-xl text-text-secondary hover:text-accent hover:border-accent/40 transition-all shadow-sm"
+                      >
+                        <Settings size={18} />
+                      </button>
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDelete(tmp.id);
+                        }}
+                        className="p-3 bg-bg border border-border rounded-xl text-text-secondary hover:text-red-400 hover:border-red-400/40 transition-all shadow-sm"
+                      >
+                        <Trash2 size={18} />
+                      </button>
+                    </div>
                   </div>
                 </div>
               ))}
               {templates.length === 0 && (
-                <div className="py-12 text-center text-text-secondary opacity-40 italic text-xs">
-                  {t.noTemplates}
+                <div className="py-24 text-center border-2 border-dashed border-border rounded-3xl bg-bg/5 space-y-6">
+                  <div className="w-16 h-16 bg-bg border border-border rounded-full flex items-center justify-center mx-auto opacity-40">
+                    <Layers size={24} className="text-text-secondary" />
+                  </div>
+                  <div className="space-y-2">
+                    <p className="text-sm font-bold text-text-secondary uppercase tracking-widest">{t.noTemplates}</p>
+                    <p className="text-xs text-text-secondary opacity-40 flex items-center justify-center gap-2">
+                      Click the "New Template" button to get started.
+                    </p>
+                  </div>
                 </div>
               )}
             </div>
@@ -471,10 +776,13 @@ const TemplateManager: React.FC<{
         </div>
 
         {!editingTemplate && (
-          <div className="mt-8 pt-6 border-t border-border flex justify-end">
+          <div className="mt-8 pt-8 border-t border-border flex justify-between items-center bg-surface">
+            <p className="text-[10px] text-text-secondary italic max-w-[300px]">
+              Templates allow you to quickly apply recurring project structures with relative lead times.
+            </p>
             <button 
               onClick={onClose}
-              className="px-8 py-3 bg-border text-text-primary text-[11px] font-bold uppercase rounded hover:bg-white/10"
+              className="px-10 py-4 bg-bg border border-border text-text-primary text-[11px] font-bold uppercase rounded-xl hover:bg-white/10 shadow-sm transition-all active:scale-95"
             >
               {t.returnToDashboard}
             </button>
@@ -501,6 +809,8 @@ export default function App() {
   const [templateRecType, setTemplateRecType] = useState<RecurrenceType>('none');
   const [templateWeeklyDays, setTemplateWeeklyDays] = useState<number[]>([]);
   const [templateMonthlyDays, setTemplateMonthlyDays] = useState<(number | string)[]>([]);
+  const [templateBaseDate, setTemplateBaseDate] = useState<string>(''); // For single template application
+  const [formMode, setFormMode] = useState<'normal' | 'template'>('normal');
   const [theme, setTheme] = useState<'dark' | 'light'>(() => {
     return (localStorage.getItem('ganttflow_theme') as 'dark' | 'light') || 'dark';
   });
@@ -651,19 +961,16 @@ export default function App() {
     return newTask.id;
   };
 
-  const handleApplyTemplate = (templateId: string, deadlineStr: string, recurrence?: RecurrenceRule) => {
+  const handleApplyTemplate = (templateId: string, baseDateStr: string, recurrence?: RecurrenceRule) => {
     const template = templates.find(t => t.id === templateId);
     if (!template) return;
 
-    // Determine the base deadline. 
-    // If not provided manually, we use the first occurrence of the recurrence rule starting from today.
-    let deadline: Date;
-    if (deadlineStr) {
-      deadline = new Date(deadlineStr);
+    let baseDate: Date;
+    if (baseDateStr) {
+      baseDate = new Date(baseDateStr);
     } else if (recurrence && recurrence.type !== 'none') {
       const today = startOfDay(new Date());
       const oneYearLater = addDays(today, 365);
-      // Create a dummy task to find the first instance using scheduler logic
       const dummyTask: Task = {
         id: 'dummy',
         title: 'dummy',
@@ -675,39 +982,83 @@ export default function App() {
       };
       const instances = calculateTaskInstances(dummyTask, today, oneYearLater, holidays);
       if (instances.length > 0) {
-        deadline = instances[0].start;
+        baseDate = instances[0].start;
       } else {
-        deadline = today; // Fallback
+        baseDate = today;
       }
     } else {
-      return; // Need either a manual deadline or an active recurrence rule
+      return;
     }
 
-    const parentTaskId = handleCreateTask({
+    const newTasksAdded: Task[] = [];
+    
+    // Internal helper to avoid state issues during loop
+    const createLocalTask = (data: Partial<Task>): Task => {
+      const task: Task = {
+        id: generateId(),
+        title: data.title || 'Untitled Task',
+        parentId: data.parentId || null,
+        leadTime: data.leadTime || 0,
+        recurrence: data.recurrence || { type: 'none' },
+        isCompleted: false,
+        color: COLORS[Math.floor(Math.random() * COLORS.length)],
+        createdAt: Date.now(),
+        baseDate: data.baseDate,
+        ...data
+      };
+      newTasksAdded.push(task);
+      return task;
+    };
+
+    const parentTask = createLocalTask({
       title: template.name,
       recurrence: recurrence || { type: 'none' },
-      baseDate: format(deadline, 'yyyy-MM-dd'),
+      baseDate: format(baseDate, 'yyyy-MM-dd'),
       leadTime: 0
     });
 
-    const itemMap = new Map<string, string>(); // Original ID -> New ID
+    const itemMap = new Map<string, string>();
     const pendingItems = [...template.items];
 
-    // Simple iterative approach to handle dependencies
     let progress = true;
     while (pendingItems.length > 0 && progress) {
       progress = false;
       for (let i = 0; i < pendingItems.length; i++) {
         const item = pendingItems[i];
         
-        // If it has no parent or parent is already created
         if (!item.parentId || itemMap.has(item.parentId)) {
-          const calculatedStart = subBusinessDays(deadline, item.daysBeforeDeadline, holidays);
+          let referenceDate: Date;
+          
+          if (!item.parentId) {
+            referenceDate = baseDate;
+          } else {
+            const actualParentTaskId = itemMap.get(item.parentId);
+            const refParentTask = [...tasks, ...newTasksAdded].find(t => t.id === actualParentTaskId);
+            
+            if (refParentTask) {
+              const pStart = new Date(refParentTask.baseDate || '');
+              const pEnd = calculateEndDate(pStart, refParentTask.leadTime, holidays);
+              referenceDate = item.parentPoint === 'start' ? pStart : pEnd;
+            } else {
+              referenceDate = baseDate;
+            }
+          }
+
+          const offset = item.offsetDirection === 'before' ? -item.offsetDays : item.offsetDays;
+          const targetDate = offset >= 0 
+            ? addBusinessDays(referenceDate, offset, holidays)
+            : subBusinessDays(referenceDate, Math.abs(offset), holidays);
+          
+          let finalStart: Date;
+          if (item.targetPoint === 'start') {
+            finalStart = targetDate;
+          } else {
+            finalStart = addDays(targetDate, -item.leadTime);
+          }
           
           let itemRecurrence: RecurrenceRule = { type: 'none' };
           if (recurrence && recurrence.type === 'weekly') {
-            // Shift weekly days based on the offset of this specific item's start date
-            const diffDays = Math.round((calculatedStart.getTime() - deadline.getTime()) / (1000 * 3600 * 24));
+            const diffDays = Math.round((finalStart.getTime() - baseDate.getTime()) / (1000 * 3600 * 24));
             const shiftedWeeklyDays = (recurrence.weeklyDays || []).map(day => {
               let newDay = (day + diffDays) % 7;
               if (newDay < 0) newDay += 7;
@@ -715,28 +1066,18 @@ export default function App() {
             });
             itemRecurrence = { type: 'weekly', weeklyDays: shiftedWeeklyDays };
           } else if (recurrence && recurrence.type === 'monthly') {
-            // Check if it's 'last-business-day' based. If so, use relative-last-business-day
-            const isLastBizBased = recurrence.monthlyDays?.some(d => d === 'last-business-day');
-            if (isLastBizBased) {
-              itemRecurrence = { 
-                type: 'monthly', 
-                monthlyDays: [`relative-last-business-day:-${item.daysBeforeDeadline}`] 
-              };
-            } else {
-              // Fallback to absolute day of month if it's a number
-              const dayOfMonth = calculatedStart.getDate();
-              itemRecurrence = { type: 'monthly', monthlyDays: [dayOfMonth] };
-            }
+            const dayOfMonth = finalStart.getDate();
+            itemRecurrence = { type: 'monthly', monthlyDays: [dayOfMonth] };
           }
 
-          const newId = handleCreateTask({
+          const newTask = createLocalTask({
             title: item.title,
-            parentId: item.parentId ? itemMap.get(item.parentId) : parentTaskId,
+            parentId: item.parentId ? itemMap.get(item.parentId) : parentTask.id,
             leadTime: item.leadTime,
             recurrence: itemRecurrence,
-            baseDate: format(calculatedStart, 'yyyy-MM-dd')
+            baseDate: format(finalStart, 'yyyy-MM-dd')
           });
-          itemMap.set(item.id, newId || '');
+          itemMap.set(item.id, newTask.id);
           pendingItems.splice(i, 1);
           i--;
           progress = true;
@@ -744,21 +1085,39 @@ export default function App() {
       }
     }
 
-    // Add any remaining items that had broken parent links as children of the main parent
+    // Handle orphans
     pendingItems.forEach(item => {
-      const calculatedStart = subBusinessDays(deadline, item.daysBeforeDeadline, holidays);
-      handleCreateTask({
+      const offset = item.offsetDirection === 'before' ? -item.offsetDays : item.offsetDays;
+      const targetDate = offset >= 0 
+        ? addBusinessDays(baseDate, offset, holidays)
+        : subBusinessDays(baseDate, Math.abs(offset), holidays);
+      
+      let finalStart: Date;
+      if (item.targetPoint === 'start') {
+        finalStart = targetDate;
+      } else {
+        finalStart = addDays(targetDate, -item.leadTime);
+      }
+
+      createLocalTask({
         title: item.title,
-        parentId: parentTaskId,
+        parentId: parentTask.id,
         leadTime: item.leadTime,
         recurrence: { type: 'none' },
-        baseDate: format(calculatedStart, 'yyyy-MM-dd')
+        baseDate: format(finalStart, 'yyyy-MM-dd')
       });
+    });
+
+    setTasks(prev => [...prev, ...newTasksAdded]);
+    setExpandedIds(prev => {
+      const next = new Set(prev);
+      newTasksAdded.forEach(t => next.add(t.id));
+      return next;
     });
 
     setIsFormOpen(false);
     setSelectedTemplateId('');
-    setTemplateDeadline('');
+    setTemplateBaseDate('');
     setTemplateRecType('none');
     setTemplateWeeklyDays([]);
     setTemplateMonthlyDays([]);
@@ -1117,17 +1476,41 @@ export default function App() {
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="w-full max-w-2xl bg-surface border border-border rounded-xl shadow-2xl p-10"
+              className="w-full max-w-2xl bg-surface border border-border rounded-xl shadow-2xl p-10 overflow-y-auto max-h-[90vh]"
             >
-              <h2 className="text-xl font-bold mb-8 text-text-primary">
-                {editingTask ? t.taskConfig : t.newTaskDef}
-              </h2>
-              
+              <div className="flex items-center justify-between mb-8">
+                <h2 className="text-xl font-bold text-text-primary">
+                  {editingTask ? t.taskConfig : t.newTaskDef}
+                </h2>
+                <button 
+                  onClick={() => setIsFormOpen(false)}
+                  className="p-2 text-text-secondary hover:text-text-primary transition-colors"
+                >
+                  <Trash2 size={20} className="rotate-45" />
+                </button>
+              </div>
+
               {!editingTask && (
-                <div className="mb-8 border-b border-border pb-8 last:border-0 last:pb-0">
-                  <h3 className="text-[10px] font-bold uppercase text-accent tracking-[2px] mb-6 flex items-center gap-2">
-                     <Settings size={12} /> {t.applyTemplate}
-                  </h3>
+                <div className="flex gap-1 bg-bg p-1 rounded-xl border border-border mb-8">
+                  {(['normal', 'template'] as const).map(mode => (
+                    <button
+                      key={mode}
+                      onClick={() => setFormMode(mode)}
+                      className={cn(
+                        "flex-1 py-3 text-[11px] font-black uppercase tracking-widest rounded-lg transition-all",
+                        formMode === mode 
+                          ? "bg-accent text-text-on-accent shadow-lg shadow-accent/20" 
+                          : "text-text-secondary hover:bg-white/5"
+                      )}
+                    >
+                      {mode === 'normal' ? t.standardRegistration : t.useTemplate}
+                    </button>
+                  ))}
+                </div>
+              )}
+              
+              {formMode === 'template' && !editingTask && (
+                <div className="mb-0 border-b border-border pb-8 last:border-0 last:pb-0 animate-in fade-in slide-in-from-bottom-2 duration-300">
                   <div className="space-y-4">
                     <div className="flex items-center gap-6">
                       <label className="w-32 flex-shrink-0 text-[10px] font-bold uppercase text-text-secondary tracking-widest">{t.selectTemplate}</label>
@@ -1151,9 +1534,10 @@ export default function App() {
                       </label>
                       <input 
                         type="date"
-                        value={templateDeadline}
+                        value={templateBaseDate}
                         disabled={templateRecType !== 'none'}
-                        onChange={e => setTemplateDeadline(e.target.value)}
+                        onChange={e => setTemplateBaseDate(e.target.value)}
+                        placeholder={t.baseDatePlaceholder}
                         className={cn(
                           "flex-1 bg-bg border border-border rounded-lg px-4 py-3 text-xs text-text-primary focus:outline-none transition-all",
                           templateRecType !== 'none' ? "opacity-30 cursor-not-allowed bg-surface/50" : "focus:border-accent"
@@ -1163,6 +1547,11 @@ export default function App() {
                   </div>
                   {selectedTemplateId && (
                     <div className="mt-6 p-6 bg-bg/50 border border-border rounded-xl space-y-6">
+                      <div className="flex-1 flex gap-2 mb-4 p-2 bg-sidebar rounded-lg border border-border">
+                        <div className="text-[10px] font-bold text-accent px-3 py-1 bg-accent-soft rounded border border-accent/20">
+                          {templates.find(x => x.id === selectedTemplateId)?.baseType === 'deadline' ? t.deadlineBase : t.startDateBase}
+                        </div>
+                      </div>
                       <div className="flex items-center gap-6">
                         <label className="w-32 flex-shrink-0 text-[10px] font-bold uppercase text-text-secondary tracking-widest">{t.recurrenceModel}</label>
                         <div className="flex-1 space-y-2">
@@ -1176,7 +1565,7 @@ export default function App() {
                                   checked={templateRecType === type}
                                   onChange={() => {
                                     setTemplateRecType(type);
-                                    if (type !== 'none') setTemplateDeadline('');
+                                    if (type !== 'none') setTemplateBaseDate('');
                                   }}
                                   className="sr-only peer"
                                 />
@@ -1206,25 +1595,25 @@ export default function App() {
                       </div>
 
                       <button 
-                        onClick={() => handleApplyTemplate(selectedTemplateId, templateDeadline, {
+                        onClick={() => handleApplyTemplate(selectedTemplateId, templateBaseDate, {
                           type: templateRecType,
                           weeklyDays: templateWeeklyDays,
                           monthlyDays: templateMonthlyDays as any
                         })}
                         disabled={
-                          !templateDeadline && 
+                          !templateBaseDate && 
                           (templateRecType === 'none' || 
                            (templateRecType === 'weekly' && templateWeeklyDays.length === 0) ||
                            (templateRecType === 'monthly' && templateMonthlyDays.length === 0))
                         }
                         className={cn(
                           "w-full py-4 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all",
-                          (templateDeadline || (templateRecType !== 'none' && (templateWeeklyDays.length > 0 || templateMonthlyDays.length > 0)))
+                          (templateBaseDate || (templateRecType !== 'none' && (templateWeeklyDays.length > 0 || templateMonthlyDays.length > 0)))
                             ? "bg-accent text-text-on-accent shadow-lg shadow-accent/20 hover:brightness-110 active:scale-[0.98]" 
                             : "bg-border text-text-secondary cursor-not-allowed"
                         )}
                       >
-                        {templateDeadline || (templateRecType !== 'none' && (templateWeeklyDays.length > 0 || templateMonthlyDays.length > 0))
+                        {templateBaseDate || (templateRecType !== 'none' && (templateWeeklyDays.length > 0 || templateMonthlyDays.length > 0))
                           ? t.applyTemplate 
                           : (templateRecType !== 'none' ? t.recurrenceRuleRequired : t.deadlineRequired)}
                       </button>
@@ -1233,28 +1622,29 @@ export default function App() {
                 </div>
               )}
 
-              <form 
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  const formData = new FormData(e.currentTarget);
-                  const data: Partial<Task> = {
-                    title: formData.get('title') as string,
-                    leadTime: parseInt(formData.get('leadTime') as string) || 0,
-                    parentId: (formData.get('parentId') as string) || null,
-                    recurrence: {
-                      type: recType,
-                      weeklyDays: recType === 'weekly' ? weeklyDays : [],
-                      monthlyDays: recType === 'monthly' ? monthlyDays : []
+              {(formMode === 'normal' || editingTask) && (
+                <form 
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    const formData = new FormData(e.currentTarget);
+                    const data: Partial<Task> = {
+                      title: formData.get('title') as string,
+                      leadTime: parseInt(formData.get('leadTime') as string) || 0,
+                      parentId: (formData.get('parentId') as string) || null,
+                      recurrence: {
+                        type: recType,
+                        weeklyDays: recType === 'weekly' ? weeklyDays : [],
+                        monthlyDays: recType === 'monthly' ? monthlyDays : []
+                      }
+                    };
+                    if (editingTask) handleUpdateTask(editingTask.id, data);
+                    else {
+                      handleCreateTask(data);
+                      setIsFormOpen(false);
                     }
-                  };
-                  if (editingTask) handleUpdateTask(editingTask.id, data);
-                  else {
-                    handleCreateTask(data);
-                    setIsFormOpen(false);
-                  }
-                }}
-                className="space-y-4"
-              >
+                  }}
+                  className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300"
+                >
                 <div className="flex items-center gap-6">
                   <label className="w-32 flex-shrink-0 text-[10px] font-bold uppercase text-text-secondary tracking-widest">{t.title}</label>
                   <input 
@@ -1324,22 +1714,23 @@ export default function App() {
                   </div>
                 </div>
 
-                <div className="flex gap-4 pt-4">
-                  <button 
-                    type="submit"
-                    className="flex-1 bg-accent text-text-on-accent py-4 rounded-xl text-xs font-black uppercase tracking-widest shadow-lg shadow-accent/20 hover:scale-[1.02] active:scale-[0.98] transition-all"
-                  >
-                    {t.commitTask}
-                  </button>
-                  <button 
-                    type="button"
-                    onClick={() => { setIsFormOpen(false); setEditingTask(null); }}
-                    className="px-8 py-4 text-xs font-black uppercase tracking-widest border border-border rounded-xl text-text-secondary hover:bg-border hover:text-text-primary transition-all"
-                  >
-                    {t.discard}
-                  </button>
-                </div>
-              </form>
+                <div className="flex gap-4 pt-4 border-t border-border mt-6">
+                    <button 
+                      type="submit"
+                      className="flex-1 bg-accent text-text-on-accent py-4 rounded-xl text-xs font-black uppercase tracking-widest shadow-lg shadow-accent/20 hover:scale-[1.02] active:scale-[0.98] transition-all"
+                    >
+                      {t.commitTask}
+                    </button>
+                    <button 
+                      type="button"
+                      onClick={() => { setIsFormOpen(false); setEditingTask(null); }}
+                      className="px-8 py-4 text-xs font-black uppercase tracking-widest border border-border rounded-xl text-text-secondary hover:bg-border hover:text-text-primary transition-all"
+                    >
+                      {t.discard}
+                    </button>
+                  </div>
+                </form>
+              )}
             </motion.div>
           </div>
         )}

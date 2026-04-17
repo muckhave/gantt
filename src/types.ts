@@ -24,7 +24,10 @@ export interface TemplateItem {
   id: string;
   title: string;
   parentId: string | null;
-  daysBeforeDeadline: number; // business days
+  offsetDays: number;
+  offsetDirection: 'before' | 'after';
+  parentPoint: 'start' | 'deadline';
+  targetPoint: 'start' | 'deadline';
   leadTime: number; // calendar days
 }
 
@@ -32,6 +35,7 @@ export interface TaskTemplateSet {
   id: string;
   name: string;
   items: TemplateItem[];
+  baseType: 'deadline' | 'start-date';
 }
 
 export interface Holiday {
@@ -80,6 +84,31 @@ export const subBusinessDays = (date: Date, offset: number, holidays: Holiday[])
     current = addDays(current, -1);
     if (isBusinessDay(current, holidays)) {
       count++;
+    }
+  }
+  return current;
+};
+
+export const addBusinessDays = (date: Date, offset: number, holidays: Holiday[]) => {
+  let current = date;
+  let count = 0;
+  while (count < offset) {
+    current = addDays(current, 1);
+    if (isBusinessDay(current, holidays)) {
+      count++;
+    }
+  }
+  return current;
+};
+
+export const calculateEndDate = (startDate: Date, leadTime: number, holidays: Holiday[]): Date => {
+  if (leadTime <= 0) return startDate;
+  let current = startDate;
+  let bDays = isBusinessDay(startDate, holidays) ? 1 : 0;
+  while (bDays < leadTime) {
+    current = addDays(current, 1);
+    if (isBusinessDay(current, holidays)) {
+      bDays++;
     }
   }
   return current;

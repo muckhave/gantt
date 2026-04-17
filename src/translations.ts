@@ -58,7 +58,23 @@ export const translations = {
     saveTemplate: "テンプレートを保存",
     deadlineRequired: "テンプレート適用には締め切り日が必要です",
     recurrenceRuleRequired: "繰り返し設定をする場合は、曜日や日付を選択してください",
-    recurrenceDeadlineInfo: "繰り返し設定を有効にすると、指定したルールに基づいて「締め切り日」が定期的に設定されます。"
+    recurrenceDeadlineInfo: "繰り返し設定を有効にすると、指定したルールに基づいて「締め切り日」が定期的に設定されます。",
+    standardRegistration: "通常登録",
+    useTemplate: "テンプレート使用",
+    templateBaseType: "基準日設定",
+    deadlineBase: "締め切り日基準（逆算）",
+    startDateBase: "開始日基準（順算）",
+    daysRelative: "日後/日前",
+    baseDatePlaceholder: "基準日（開始日/締切日）",
+    parentPoint: "親の",
+    targetPoint: "自分の",
+    startPoint: "開始日",
+    deadlinePoint: "締切日",
+    offsetBefore: "前",
+    offsetAfter: "後",
+    calcBase: "計算の基準",
+    templatePreview: "スケジュールの可視化（プレビュー）",
+    baseDatePoint: "基準日"
   }
 };
 
