@@ -1369,13 +1369,13 @@ export default function App() {
                     // If it has children, the visually effective instances should cover its children
                     const visualInstances = ownInstances.map(own => {
                       // Filter descendant instances that roughly align with this recurrence cycle
-                      // For simplicity in this UI, if it's recurring, we align by proximity
-                      // But for non-recurring or simple cases, we just want the min/max
+                      // We use a boundary based on the recurrence type to associate children with the correct parent instance
+                      const boundary = task.recurrence.type === 'weekly' ? addDays(own.start, 7) : 
+                                      task.recurrence.type === 'monthly' ? addDays(own.start, 31) :
+                                      addDays(own.start, 365); // Large window for non-recurring or others
+
                       const relevantDescendants = descendantInstances.filter(d => 
-                        // Overlapping or within a reasonable window of the parent instance
-                        (d.start >= own.start && d.start <= own.end) ||
-                        (d.end >= own.start && d.end <= own.end) ||
-                        (d.start <= own.start && d.end >= own.end)
+                        d.start >= own.start && d.start < boundary
                       );
 
                       if (relevantDescendants.length === 0) return own;
@@ -1413,17 +1413,17 @@ export default function App() {
                               className={cn(
                                 "absolute h-6 rounded-md shadow-lg cursor-pointer hover:brightness-110 active:scale-[0.98] transition-all flex items-center px-3 z-10",
                                 task.isCompleted ? "opacity-30 grayscale" : "",
-                                hasChildren ? "h-5 mt-0.5" : "" // Slightly thinner for parents
+                                hasChildren ? "h-2 mt-2" : "" // Thinner summary bar for parents
                               )}
                               style={{ 
                                 left: `${startOffset * dayWidth}px`, 
                                 width: `${duration * dayWidth - 4}px`,
-                                backgroundColor: task.color || '#4da6ff',
+                                backgroundColor: hasChildren ? '#333' : (task.color || '#4da6ff'),
                                 top: '10px',
-                                boxShadow: `0 4px 12px ${task.color}33`,
-                                borderLeft: hasChildren ? `4px solid ${task.color}` : 'none',
-                                borderRight: hasChildren ? `4px solid ${task.color}` : 'none',
-                                borderRadius: hasChildren ? '2px' : '6px'
+                                boxShadow: hasChildren ? 'none' : `0 4px 12px ${task.color}33`,
+                                borderLeft: hasChildren ? `2px solid #000` : 'none',
+                                borderRight: hasChildren ? `2px solid #000` : 'none',
+                                borderRadius: hasChildren ? '0' : '6px'
                               }}
                               title={`${task.title} (${format(instance.start, 'MMM d')} - ${format(instance.end, 'MMM d')})`}
                             >
@@ -1433,7 +1433,10 @@ export default function App() {
                                 </span>
                               )}
                               {hasChildren && (
-                                <div className="absolute -bottom-1 left-0 right-0 h-0.5 bg-black/20" />
+                                <>
+                                  <div className="absolute -bottom-1 left-0 w-1 h-3 bg-black transform -translate-y-1/2" style={{ clipPath: 'polygon(0 0, 100% 0, 0 100%)' }} />
+                                  <div className="absolute -bottom-1 right-0 w-1 h-3 bg-black transform -translate-y-1/2" style={{ clipPath: 'polygon(0 0, 100% 0, 100% 100%)' }} />
+                                </>
                               )}
                             </motion.div>
                           );
