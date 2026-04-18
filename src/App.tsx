@@ -1368,15 +1368,17 @@ export default function App() {
                     
                     // If it has children, the visually effective instances should cover its children
                     const visualInstances = ownInstances.map(own => {
-                      // Filter descendant instances that roughly align with this recurrence cycle
-                      // We use a boundary based on the recurrence type to associate children with the correct parent instance
-                      const boundary = task.recurrence.type === 'weekly' ? addDays(own.start, 7) : 
-                                      task.recurrence.type === 'monthly' ? addDays(own.start, 31) :
-                                      addDays(own.start, 365); // Large window for non-recurring or others
-
-                      const relevantDescendants = descendantInstances.filter(d => 
-                        d.start >= own.start && d.start < boundary
-                      );
+                      // For periodic tasks, we group descendants that fall within the same period.
+                      // If it's a deadline-based parent, children are usually scheduled 'before',
+                      // so we check if the descendant instance is within one recurrence window of the parent.
+                      const relevantDescendants = descendantInstances.filter(d => {
+                        const dist = differenceInDays(d.start, own.start);
+                        if (task.recurrence.type === 'weekly') return Math.abs(dist) < 7;
+                        if (task.recurrence.type === 'monthly') return Math.abs(dist) < 31;
+                        // For non-recurring, include all descendants that are "nearby" (within a month)
+                        // or just all descendants if there's only one parent instance
+                        return ownInstances.length === 1 || Math.abs(dist) < 31;
+                      });
 
                       if (relevantDescendants.length === 0) return own;
 
