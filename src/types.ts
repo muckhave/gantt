@@ -2,10 +2,15 @@ import { addDays, format, isWeekend, lastDayOfMonth, startOfMonth, isSameDay } f
 
 export type RecurrenceType = 'none' | 'weekly' | 'monthly';
 
+export type HolidayAdjustment = 'next' | 'prev' | 'skip';
+
 export interface RecurrenceRule {
   type: RecurrenceType;
+  interval?: number; // e.g., every 3 months
+  months?: number[]; // 1-12 (for monthly patterns that repeat only in certain months)
   weeklyDays?: number[]; // 0-6
   monthlyDays?: (number | 'first-business-day' | 'last-business-day' | string)[]; // e.g., 'nth-business-day:2'
+  holidayAdjustment?: HolidayAdjustment;
 }
 
 export interface Task {

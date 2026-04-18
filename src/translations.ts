@@ -34,6 +34,7 @@ export const translations = {
     firstBizDay: "月初営業日",
     lastBizDay: "月末営業日",
     nthBizDay: "第{}営業日",
+    nthLastBizDay: "月末から{}営業日前",
     nthBizDayShort: "第{}営",
     commitTask: "タスクを保存",
     discard: "キャンセル",
@@ -75,7 +76,19 @@ export const translations = {
     offsetAfter: "後（営業日）",
     calcBase: "計算の基準",
     templatePreview: "スケジュールの可視化（プレビュー）",
-    baseDatePoint: "基準日"
+    baseDatePoint: "基準日",
+    recurrenceInterval: "繰り返しの間隔",
+    everyXMonths: "{}ヶ月ごと",
+    monthsOfYear: "実施月（指定がない場合は毎月）",
+    holidayAdjustment: "祝日・休日の調整",
+    adjNext: "翌営業日に振り替え",
+    adjPrev: "前営業日に振り替え",
+    adjSkip: "スキップ（実施しない）",
+    recurrenceExists: "あり",
+    recurrenceNone: "なし",
+    repeatEvery: "間隔",
+    weekUnit: "週",
+    monthUnit: "ヶ月"
   }
 };
 

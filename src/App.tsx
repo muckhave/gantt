@@ -41,6 +41,7 @@ import {
   Holiday, 
   RecurrenceType, 
   RecurrenceRule,
+  HolidayAdjustment,
   isHoliday, 
   isBusinessDay, 
   TaskTemplateSet, 
@@ -55,6 +56,155 @@ import { calculateTaskInstances } from './scheduler';
 import { translations } from './translations';
 
 const t = translations.ja;
+
+const DatePicker: React.FC<{
+  value: string;
+  onChange: (date: string) => void;
+  disabled?: boolean;
+}> = ({ value, onChange, disabled }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [viewMonth, setViewMonth] = useState(value ? parseISO(value) : new Date());
+  
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    if (isOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isOpen]);
+
+  const days = useMemo(() => {
+    const start = startOfMonth(viewMonth);
+    const end = endOfMonth(viewMonth);
+    // Pad to start on Sunday
+    const startDay = start.getDay();
+    const daysArr = [];
+    for (let i = 0; i < startDay; i++) {
+      daysArr.push(null);
+    }
+    const daysInMonth = eachDayOfInterval({ start, end });
+    return [...daysArr, ...daysInMonth];
+  }, [viewMonth]);
+
+  const selectedDate = value ? parseISO(value) : null;
+
+  return (
+    <div className="relative flex-1" ref={containerRef}>
+      <div 
+        onClick={() => !disabled && setIsOpen(!isOpen)}
+        className={cn(
+          "flex-1 bg-bg border border-border rounded-lg px-4 py-3 text-xs text-text-primary flex items-center justify-between cursor-pointer transition-all",
+          disabled ? "opacity-30 cursor-not-allowed bg-surface/50" : "hover:border-accent focus-within:border-accent",
+          isOpen && "border-accent ring-1 ring-accent/20"
+        )}
+      >
+        <span>{value ? format(parseISO(value), 'yyyy/MM/dd') : '日付を選択'}</span>
+        <Calendar size={14} className="text-text-secondary" />
+      </div>
+
+      <AnimatePresence>
+        {isOpen && (
+          <motion.div 
+            initial={{ opacity: 0, y: 10, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 10, scale: 0.95 }}
+            className="absolute left-0 top-full mt-2 w-72 bg-surface border border-border rounded-xl shadow-2xl z-[60] p-4"
+          >
+            <div className="flex items-center justify-between mb-4">
+              <button 
+                type="button"
+                onClick={() => setViewMonth(subMonths(viewMonth, 1))}
+                className="p-1 hover:bg-white/5 rounded text-text-secondary"
+              >
+                <ChevronRight size={16} className="rotate-180" />
+              </button>
+              <div className="text-[11px] font-black uppercase tracking-widest text-text-primary">
+                {format(viewMonth, 'yyyy年 MM月')}
+              </div>
+              <button 
+                type="button"
+                onClick={() => setViewMonth(addMonths(viewMonth, 1))}
+                className="p-1 hover:bg-white/5 rounded text-text-secondary"
+              >
+                <ChevronRight size={16} />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-7 gap-1 mb-2">
+              {['日', '月', '火', '水', '木', '金', '土'].map(d => (
+                <div key={d} className="text-[9px] font-bold text-text-secondary text-center py-1 uppercase opacity-50">
+                  {d}
+                </div>
+              ))}
+            </div>
+
+            <div className="grid grid-cols-7 gap-1">
+              {days.map((day, idx) => {
+                if (!day) return <div key={`empty-${idx}`} />;
+                
+                const isSelected = selectedDate && isSameDay(day, selectedDate);
+                const isToday = isSameDay(day, new Date());
+                const isWe = isWeekend(day);
+
+                return (
+                  <button
+                    key={day.toISOString()}
+                    type="button"
+                    onClick={() => {
+                      onChange(format(day, 'yyyy-MM-dd'));
+                      setIsOpen(false);
+                    }}
+                    className={cn(
+                      "aspect-square flex items-center justify-center text-[10px] rounded-lg transition-all",
+                      isSelected 
+                        ? "bg-accent text-text-on-accent font-bold scale-110 shadow-lg shadow-accent/40" 
+                        : "text-text-primary hover:bg-white/10",
+                      isToday && !isSelected && "border border-accent/40 text-accent",
+                      isWe && !isSelected && "text-text-secondary opacity-60"
+                    )}
+                  >
+                    {format(day, 'd')}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="mt-4 pt-4 border-t border-border flex justify-between items-center">
+              <button 
+                type="button"
+                onClick={() => {
+                  onChange(format(new Date(), 'yyyy-MM-dd'));
+                  setIsOpen(false);
+                }}
+                className="text-[10px] font-bold text-accent hover:underline"
+              >
+                今日
+              </button>
+              {value && (
+                <button 
+                  type="button"
+                  onClick={() => {
+                    onChange('');
+                    setIsOpen(false);
+                  }}
+                  className="text-[10px] font-bold text-text-secondary hover:text-red-400"
+                >
+                  クリア
+                </button>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+};
 
 // --- Components ---
 
@@ -128,158 +278,277 @@ const TaskRow: React.FC<{
 
 const RecurrenceOptions = ({ 
   type, 
+  setType,
   weeklyDays, 
   setWeeklyDays, 
   monthlyDays, 
-  setMonthlyDays 
+  setMonthlyDays,
+  interval,
+  setInterval,
+  months,
+  setMonths,
+  holidayAdjustment,
+  setHolidayAdjustment
 }: { 
   type: RecurrenceType; 
+  setType: (type: RecurrenceType) => void;
   weeklyDays: number[]; 
   setWeeklyDays: (days: number[]) => void;
   monthlyDays: (number | 'first-business-day' | 'last-business-day' | string)[];
   setMonthlyDays: (days: (number | 'first-business-day' | 'last-business-day' | string)[]) => void;
+  interval: number;
+  setInterval: (val: number) => void;
+  months: number[];
+  setMonths: (val: number[]) => void;
+  holidayAdjustment: HolidayAdjustment;
+  setHolidayAdjustment: (val: HolidayAdjustment) => void;
 }) => {
   if (type === 'none') return null;
 
-  if (type === 'weekly') {
-    const days = ['日', '月', '火', '水', '木', '金', '土'];
-    return (
-      <div className="space-y-2">
-        <label className="block text-[10px] font-mono uppercase opacity-50">{t.repeatOn}</label>
-        <div className="flex gap-1">
-          {days.map((day, i) => (
+  const IntervalPicker = () => (
+    <div className="space-y-3 mb-6 bg-white/5 p-4 rounded-xl border border-white/5">
+      <div className="flex items-center justify-between">
+        <label className="block text-[10px] font-black uppercase text-text-secondary tracking-widest">{t.repeatEvery}</label>
+        <div className="flex bg-bg p-1 rounded-lg border border-border">
+          {(['weekly', 'monthly'] as const).map(u => (
             <button
-              key={i}
+              key={u}
               type="button"
-              onClick={() => {
-                const next = weeklyDays.includes(i) ? weeklyDays.filter(d => d !== i) : [...weeklyDays, i];
-                setWeeklyDays(next);
-              }}
+              onClick={() => setType(u)}
               className={cn(
-                "w-8 h-8 flex items-center justify-center text-[10px] font-bold border border-border transition-colors",
-                weeklyDays.includes(i) ? "bg-accent text-text-on-accent border-accent" : "hover:bg-white/5 text-text-secondary"
+                "px-3 py-1 text-[9px] font-black uppercase rounded-md transition-all",
+                type === u ? "bg-accent text-text-on-accent shadow-sm" : "text-text-secondary hover:text-text-primary"
               )}
             >
-              {day}
+              {u === 'weekly' ? t.weekUnit : t.monthUnit}
             </button>
           ))}
         </div>
       </div>
-    );
-  }
 
-  return (
-    <div className="space-y-3">
-      <label className="block text-[10px] font-mono uppercase opacity-50">{t.monthlySchedule}</label>
-      <div className="flex flex-wrap gap-2">
-        <button
-          type="button"
-          onClick={() => {
-            const val = 'first-business-day' as const;
-            const next = (monthlyDays as (number | 'first-business-day' | 'last-business-day')[]).includes(val) 
-              ? monthlyDays.filter(d => d !== val) 
-              : [...monthlyDays, val];
-            setMonthlyDays(next as (number | 'first-business-day' | 'last-business-day')[]);
-          }}
-          className={cn(
-            "px-2 py-1 text-[9px] font-bold border border-border uppercase tracking-tighter transition-colors",
-            monthlyDays.includes('first-business-day') ? "bg-accent text-text-on-accent border-accent" : "hover:bg-white/5 text-text-secondary"
-          )}
-        >
-          {t.firstBizDay}
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            const val = 'last-business-day' as const;
-            const next = monthlyDays.includes(val) 
-              ? monthlyDays.filter(d => d !== val) 
-              : [...monthlyDays, val];
-            setMonthlyDays(next);
-          }}
-          className={cn(
-            "px-2 py-1 text-[9px] font-bold border border-border uppercase tracking-tighter transition-colors",
-            monthlyDays.includes('last-business-day') ? "bg-accent text-text-on-accent border-accent" : "hover:bg-white/5 text-text-secondary"
-          )}
-        >
-          {t.lastBizDay}
-        </button>
-      </div>
-
-      <div className="flex flex-wrap gap-2">
-        {[1, 2, 3, 4, 5].map(n => {
-          const val = `nth-business-day:${n}`;
-          return (
-            <button
-              key={val}
-              type="button"
-              onClick={() => {
-                const next = monthlyDays.includes(val) ? monthlyDays.filter(d => d !== val) : [...monthlyDays, val];
-                setMonthlyDays(next);
-              }}
-              className={cn(
-                "px-2 py-1 text-[9px] font-bold border border-border uppercase tracking-tighter transition-colors",
-                monthlyDays.includes(val) ? "bg-accent text-text-on-accent border-accent" : "hover:bg-white/5 text-text-secondary"
-              )}
-            >
-              {t.nthBizDay.replace('{}', n.toString())}
-            </button>
-          );
-        })}
-      </div>
-
-      <div className="space-y-1">
-        <div className="grid grid-cols-8 gap-1">
-          <div /> {/* Empty for row label */}
-          {['日', '月', '火', '水', '木', '金', '土'].map(d => (
-            <div key={d} className="text-[7px] text-center opacity-40 uppercase font-mono">{d}</div>
-          ))}
+      <div className="flex items-center gap-4">
+        <div className="flex items-center gap-2">
+          <input 
+            type="number"
+            min="1"
+            value={interval}
+            onChange={(e) => setInterval(Math.max(1, parseInt(e.target.value) || 1))}
+            className="w-16 bg-bg border border-border rounded-lg px-3 py-2 text-xs text-text-primary focus:border-accent outline-none text-center font-bold"
+          />
+          <span className="text-[10px] font-bold text-text-secondary uppercase tracking-wider">{type === 'weekly' ? t.weekUnit : t.monthUnit}</span>
         </div>
-        {[1, 2, 3, 4, 5].map(n => (
-          <div key={n} className="grid grid-cols-8 gap-1 items-center">
-            <div className="text-[7px] opacity-40 uppercase font-mono pr-1 text-right">第{n}</div>
-            {[0, 1, 2, 3, 4, 5, 6].map(d => {
-              const val = `nth-dow:${n}:${d}`;
-              const active = monthlyDays.includes(val);
+
+        {type === 'monthly' && (
+          <div className="flex-1 flex flex-wrap gap-1 border-l border-border pl-4">
+            {Array.from({ length: 12 }).map((_, i) => {
+              const m = i + 1;
+              const active = months.includes(m);
               return (
                 <button
-                  key={d}
+                  key={m}
                   type="button"
                   onClick={() => {
-                    const next = active ? monthlyDays.filter(item => item !== val) : [...monthlyDays, val];
-                    setMonthlyDays(next);
+                    const next = active ? months.filter(x => x !== m) : [...months, m].sort((a,b) => a-b);
+                    setMonths(next);
                   }}
                   className={cn(
-                    "h-4 border border-border transition-colors",
-                    active ? "bg-accent border-accent" : "hover:bg-white/5"
+                    "w-7 h-7 flex items-center justify-center text-[8px] font-black border border-border transition-colors rounded",
+                    active ? "bg-accent text-text-on-accent border-accent" : "hover:bg-white/5 text-text-secondary"
                   )}
-                />
+                >
+                  {m}
+                </button>
               );
             })}
           </div>
-        ))}
+        )}
       </div>
+      {type === 'monthly' && <p className="text-[8px] text-text-secondary italic opacity-60">{t.monthsOfYear}</p>}
+    </div>
+  );
 
-      <div className="grid grid-cols-7 gap-1">
-        {Array.from({ length: 31 }).map((_, i) => {
-          const day = i + 1;
-          return (
+  return (
+    <div className="space-y-6">
+      <IntervalPicker />
+      
+      {type === 'weekly' ? (
+        <div className="space-y-3">
+          <label className="block text-[10px] font-black uppercase text-text-secondary tracking-widest">{t.repeatOn}</label>
+          <div className="flex gap-2">
+            {['日', '月', '火', '水', '木', '金', '土'].map((day, i) => (
+              <button
+                key={i}
+                type="button"
+                onClick={() => {
+                  const next = weeklyDays.includes(i) ? weeklyDays.filter(d => d !== i) : [...weeklyDays, i];
+                  setWeeklyDays(next);
+                }}
+                className={cn(
+                  "flex-1 h-10 flex items-center justify-center text-[10px] font-black border border-border transition-all rounded-xl",
+                  weeklyDays.includes(i) ? "bg-accent text-text-on-accent border-accent shadow-lg shadow-accent/20" : "hover:bg-white/5 text-text-secondary"
+                )}
+              >
+                {day}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-5">
+          <div className="space-y-3">
+            <label className="block text-[10px] font-black uppercase text-text-secondary tracking-widest">{t.monthlySchedule}</label>
+            
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  const val = 'first-business-day' as const;
+                  const next = (monthlyDays as any[]).includes(val) ? monthlyDays.filter(d => d !== val) : [...monthlyDays, val];
+                  setMonthlyDays(next as any);
+                }}
+                className={cn(
+                  "py-3 text-[9px] font-black border border-border rounded-xl uppercase tracking-widest transition-all",
+                  monthlyDays.includes('first-business-day') ? "bg-accent text-text-on-accent border-accent" : "hover:bg-white/5 text-text-secondary"
+                )}
+              >
+                {t.firstBizDay}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const val = 'last-business-day' as const;
+                  const next = monthlyDays.includes(val) ? monthlyDays.filter(d => d !== val) : [...monthlyDays, val];
+                  setMonthlyDays(next);
+                }}
+                className={cn(
+                  "py-3 text-[9px] font-black border border-border rounded-xl uppercase tracking-widest transition-all",
+                  monthlyDays.includes('last-business-day') ? "bg-accent text-text-on-accent border-accent" : "hover:bg-white/5 text-text-secondary"
+                )}
+              >
+                {t.lastBizDay}
+              </button>
+            </div>
+
+            <div className="grid grid-cols-5 gap-1 pt-2">
+              {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(n => {
+                const val = `nth-business-day:${n}`;
+                return (
+                  <button
+                    key={val}
+                    type="button"
+                    onClick={() => {
+                      const next = monthlyDays.includes(val) ? monthlyDays.filter(d => d !== val) : [...monthlyDays, val];
+                      setMonthlyDays(next);
+                    }}
+                    className={cn(
+                      "py-2 text-[8px] font-bold border border-border rounded-lg uppercase tracking-tighter transition-all",
+                      monthlyDays.includes(val) ? "bg-accent text-text-on-accent border-accent" : "hover:bg-white/5 text-text-secondary"
+                    )}
+                  >
+                    {t.nthBizDayShort.replace('{}', n.toString())}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="grid grid-cols-2 gap-1">
+              {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(n => {
+                const val = `last-nth-business-day:${n}`;
+                return (
+                  <button
+                    key={val}
+                    type="button"
+                    onClick={() => {
+                      const next = monthlyDays.includes(val) ? monthlyDays.filter(d => d !== val) : [...monthlyDays, val];
+                      setMonthlyDays(next);
+                    }}
+                    className={cn(
+                      "py-2 text-[8px] font-bold border border-border rounded-lg uppercase tracking-tighter transition-all",
+                      monthlyDays.includes(val) ? "bg-accent text-text-on-accent border-accent" : "hover:bg-white/5 text-text-secondary"
+                    )}
+                  >
+                    {t.nthLastBizDay.replace('{}', n.toString())}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="bg-bg/50 p-4 rounded-xl border border-border/50 space-y-2">
+              <div className="grid grid-cols-8 gap-1 mb-1">
+                <div />
+                {['日', '月', '火', '水', '木', '金', '土'].map(d => (
+                  <div key={d} className="text-[7px] text-center opacity-40 uppercase font-black">{d}</div>
+                ))}
+              </div>
+              {[1, 2, 3, 4, 5].map(n => (
+                <div key={n} className="grid grid-cols-8 gap-1 items-center">
+                  <div className="text-[7px] opacity-40 uppercase font-black pr-1 text-right">第{n}</div>
+                  {[0, 1, 2, 3, 4, 5, 6].map(d => {
+                    const val = `nth-dow:${n}:${d}`;
+                    const active = monthlyDays.includes(val);
+                    return (
+                      <button
+                        key={d}
+                        type="button"
+                        onClick={() => {
+                          const next = active ? monthlyDays.filter(item => item !== val) : [...monthlyDays, val];
+                          setMonthlyDays(next);
+                        }}
+                        className={cn(
+                          "h-5 rounded-sm border border-border transition-all",
+                          active ? "bg-accent border-accent shadow-sm" : "hover:bg-white/5"
+                        )}
+                      />
+                    );
+                  })}
+                </div>
+              ))}
+            </div>
+
+            <div className="grid grid-cols-7 gap-1 pt-2">
+              {Array.from({ length: 31 }).map((_, i) => {
+                const day = i + 1;
+                return (
+                  <button
+                    key={day}
+                    type="button"
+                    onClick={() => {
+                      const next = monthlyDays.includes(day) ? monthlyDays.filter(d => d !== day) : [...monthlyDays, day];
+                      setMonthlyDays(next);
+                    }}
+                    className={cn(
+                      "h-8 flex items-center justify-center text-[9px] font-black border border-border rounded-lg transition-all",
+                      monthlyDays.includes(day) ? "bg-accent text-text-on-accent border-accent shadow-sm" : "hover:bg-white/5 text-text-secondary"
+                    )}
+                  >
+                    {day}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="pt-6 border-t border-border/50">
+        <label className="block text-[10px] font-black uppercase text-text-secondary tracking-widest mb-3">{t.holidayAdjustment}</label>
+        <div className="flex gap-1 bg-bg p-1 rounded-xl border border-border">
+          {(['next', 'prev', 'skip'] as const).map(adj => (
             <button
-              key={day}
+              key={adj}
               type="button"
-              onClick={() => {
-                const next = monthlyDays.includes(day) ? monthlyDays.filter(d => d !== day) : [...monthlyDays, day];
-                setMonthlyDays(next);
-              }}
+              onClick={() => setHolidayAdjustment(adj)}
               className={cn(
-                "w-8 h-8 flex items-center justify-center text-[10px] border border-border transition-colors",
-                monthlyDays.includes(day) ? "bg-accent text-text-on-accent border-accent" : "hover:bg-white/5 text-text-secondary"
+                "flex-1 py-3 text-[10px] font-black uppercase rounded-lg transition-all",
+                holidayAdjustment === adj 
+                  ? "bg-accent text-text-on-accent shadow-lg shadow-accent/20" 
+                  : "text-text-secondary hover:bg-white/5"
               )}
             >
-              {day}
+              {adj === 'next' ? t.adjNext : adj === 'prev' ? t.adjPrev : t.adjSkip}
             </button>
-          );
-        })}
+          ))}
+        </div>
       </div>
     </div>
   );
@@ -409,6 +678,20 @@ const TemplateManager: React.FC<{
   onClose: () => void;
 }> = ({ templates, onSave, onClose }) => {
   const [editingTemplate, setEditingTemplate] = useState<TaskTemplateSet | null>(null);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (editingTemplate) {
+          setEditingTemplate(null);
+        } else {
+          onClose();
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [editingTemplate, onClose]);
 
   const handleAddTemplate = () => {
     setEditingTemplate({ id: generateId(), name: 'New Template', items: [], baseType: 'deadline' });
@@ -806,6 +1089,7 @@ export default function App() {
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [isHolidayManagerOpen, setIsHolidayManagerOpen] = useState(false);
+  const [holidayDate, setHolidayDate] = useState<string>('');
   const [isTemplateManagerOpen, setIsTemplateManagerOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('');
@@ -813,6 +1097,9 @@ export default function App() {
   const [templateRecType, setTemplateRecType] = useState<RecurrenceType>('none');
   const [templateWeeklyDays, setTemplateWeeklyDays] = useState<number[]>([]);
   const [templateMonthlyDays, setTemplateMonthlyDays] = useState<(number | string)[]>([]);
+  const [templateInterval, setTemplateInterval] = useState<number>(1);
+  const [templateMonths, setTemplateMonths] = useState<number[]>([]);
+  const [templateHolidayAdjustment, setTemplateHolidayAdjustment] = useState<HolidayAdjustment>('next');
   const [templateBaseDate, setTemplateBaseDate] = useState<string>(''); // For single template application
   const [formMode, setFormMode] = useState<'normal' | 'template'>('normal');
   const [theme, setTheme] = useState<'dark' | 'light'>(() => {
@@ -827,7 +1114,10 @@ export default function App() {
   // Form State
   const [recType, setRecType] = useState<RecurrenceType>('none');
   const [weeklyDays, setWeeklyDays] = useState<number[]>([]);
-  const [monthlyDays, setMonthlyDays] = useState<(number | 'first-business-day' | 'last-business-day')[]>([]);
+  const [monthlyDays, setMonthlyDays] = useState<(number | 'first-business-day' | 'last-business-day' | string)[]>([]);
+  const [interval, setIntervalValue] = useState<number>(1);
+  const [months, setMonths] = useState<number[]>([]);
+  const [holidayAdjustment, setHolidayAdjustment] = useState<HolidayAdjustment>('next');
   const [manualBaseType, setManualBaseType] = useState<'start-date' | 'deadline'>('start-date');
   const [manualBaseDate, setManualBaseDate] = useState<string>('');
 
@@ -836,16 +1126,37 @@ export default function App() {
       setRecType(editingTask.recurrence.type);
       setWeeklyDays(editingTask.recurrence.weeklyDays || []);
       setMonthlyDays(editingTask.recurrence.monthlyDays || []);
+      setIntervalValue(editingTask.recurrence.interval || 1);
+      setMonths(editingTask.recurrence.months || []);
+      setHolidayAdjustment(editingTask.recurrence.holidayAdjustment || 'next');
       setManualBaseType(editingTask.baseType || 'start-date');
       setManualBaseDate(editingTask.baseDate || '');
     } else {
       setRecType('none');
       setWeeklyDays([]);
       setMonthlyDays([]);
+      setIntervalValue(1);
+      setMonths([]);
+      setHolidayAdjustment('next');
       setManualBaseType('start-date');
       setManualBaseDate('');
     }
   }, [editingTask, isFormOpen]);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (isFormOpen) {
+          setIsFormOpen(false);
+          setEditingTask(null);
+        } else if (isHolidayManagerOpen) {
+          setIsHolidayManagerOpen(false);
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isFormOpen, isHolidayManagerOpen]);
 
   // Persistence
   useEffect(() => {
@@ -952,6 +1263,16 @@ export default function App() {
     if (next.has(id)) next.delete(id);
     else next.add(id);
     setExpandedIds(next);
+  };
+
+  const handleDateClick = (date: Date) => {
+    const formattedDate = format(date, 'yyyy-MM-dd');
+    setManualBaseDate(formattedDate);
+    setTemplateBaseDate(formattedDate);
+    setManualBaseType('start-date');
+    setFormMode('normal');
+    setEditingTask(null);
+    setIsFormOpen(true);
   };
 
   const handleCreateTask = (data: Partial<Task>) => {
@@ -1116,6 +1437,9 @@ export default function App() {
     setTemplateRecType('none');
     setTemplateWeeklyDays([]);
     setTemplateMonthlyDays([]);
+    setTemplateInterval(1);
+    setTemplateMonths([]);
+    setTemplateHolidayAdjustment('next');
   };
 
   const handleUpdateTask = (id: string, data: Partial<Task>) => {
@@ -1296,8 +1620,9 @@ export default function App() {
                     return (
                       <div 
                         key={date.toISOString()}
+                        onClick={() => handleDateClick(date)}
                         className={cn(
-                          "flex-shrink-0 flex flex-col items-center justify-center border-r border-border/50 transition-colors",
+                          "flex-shrink-0 flex flex-col items-center justify-center border-r border-border/50 transition-colors cursor-pointer hover:bg-accent/10",
                           isHoli && "bg-holiday/30",
                           isWe && "bg-weekend/50"
                         )}
@@ -1329,12 +1654,13 @@ export default function App() {
                 className="flex-1 overflow-y-auto scrollbar-hide relative"
               >
                 {/* Background vertical grid lines */}
-                <div className="absolute inset-0 flex pointer-events-none min-h-full">
+                <div className="absolute inset-0 flex min-h-full">
                   {timelineDates.map(date => (
                     <div 
                       key={date.toISOString()}
+                      onClick={() => handleDateClick(date)}
                       className={cn(
-                        "flex-shrink-0 border-r border-border/30",
+                        "flex-shrink-0 border-r border-border/30 transition-colors cursor-pointer hover:bg-accent/5",
                         isHoliday(date, holidays) && "bg-holiday/10",
                         isWeekend(date) && "bg-weekend/20"
                       )}
@@ -1400,7 +1726,7 @@ export default function App() {
                     ).filter(inst => inst.start <= endOfMonthView && inst.end >= startOfMonthView);
 
                     return (
-                      <div key={task.id} className="h-[44px] flex items-center relative group">
+                      <div key={task.id} className="h-[44px] flex items-center relative group pointer-events-none">
                         {displayedInstances.map((instance, idx) => {
                           const startOffset = Math.max(0, differenceInDays(startOfDay(instance.start), startOfMonthView));
                           const duration = differenceInDays(startOfDay(instance.end), startOfDay(instance.start)) + 1;
@@ -1410,10 +1736,11 @@ export default function App() {
                           return (
                             <motion.div
                               key={idx}
+                              onClick={() => { setEditingTask(task); setIsFormOpen(true); }}
                               initial={{ opacity: 0, y: 5 }}
                               animate={{ opacity: 1, y: 0 }}
                               className={cn(
-                                "absolute h-6 rounded-md shadow-lg cursor-pointer hover:brightness-110 active:scale-[0.98] transition-all flex items-center px-3 z-10",
+                                "absolute h-6 rounded-md shadow-lg cursor-pointer hover:brightness-110 active:scale-[0.98] transition-all flex items-center px-3 z-10 pointer-events-auto",
                                 task.isCompleted ? "opacity-30 grayscale" : "",
                                 hasChildren ? "h-2 mt-2" : "" // Thinner summary bar for parents
                               )}
@@ -1532,16 +1859,10 @@ export default function App() {
                       )}>
                         {(!selectedTemplateId || templates.find(t => t.id === selectedTemplateId)?.baseType === 'deadline') ? t.deadline : t.startPoint}
                       </label>
-                      <input 
-                        type="date"
+                      <DatePicker 
                         value={templateBaseDate}
                         disabled={templateRecType !== 'none'}
-                        onChange={e => setTemplateBaseDate(e.target.value)}
-                        placeholder={t.baseDatePlaceholder}
-                        className={cn(
-                          "flex-1 bg-bg border border-border rounded-lg px-4 py-3 text-xs text-text-primary focus:outline-none transition-all",
-                          templateRecType !== 'none' ? "opacity-30 cursor-not-allowed bg-surface/50" : "focus:border-accent"
-                        )}
+                        onChange={setTemplateBaseDate}
                       />
                     </div>
                   </div>
@@ -1556,21 +1877,25 @@ export default function App() {
                         <label className="w-32 flex-shrink-0 text-[10px] font-bold uppercase text-text-secondary tracking-widest">{t.recurrenceModel}</label>
                         <div className="flex-1 space-y-2">
                           <div className="flex gap-1 bg-surface p-1 rounded-lg border border-border">
-                            {(['none', 'weekly', 'monthly'] as const).map(type => (
-                              <label key={type} className="flex-1">
+                            {(['none', 'recurring'] as const).map(mode => (
+                              <label key={mode} className="flex-1">
                                 <input 
                                   type="radio" 
                                   name="templateRecType" 
-                                  value={type} 
-                                  checked={templateRecType === type}
+                                  value={mode} 
+                                  checked={mode === 'none' ? templateRecType === 'none' : templateRecType !== 'none'}
                                   onChange={() => {
-                                    setTemplateRecType(type);
-                                    if (type !== 'none') setTemplateBaseDate('');
+                                    if (mode === 'none') {
+                                      setTemplateRecType('none');
+                                    } else if (templateRecType === 'none') {
+                                      setTemplateRecType('weekly');
+                                      setTemplateBaseDate('');
+                                    }
                                   }}
                                   className="sr-only peer"
                                 />
                                 <div className="text-center py-2 text-[10px] rounded-md cursor-pointer transition-all uppercase tracking-widest font-black peer-checked:bg-accent peer-checked:text-text-on-accent text-text-secondary hover:text-text-primary">
-                                  {t[type] || type}
+                                  {mode === 'none' ? t.recurrenceNone : t.recurrenceExists}
                                 </div>
                               </label>
                             ))}
@@ -1587,10 +1912,17 @@ export default function App() {
                       <div className="pl-32">
                         <RecurrenceOptions 
                           type={templateRecType}
+                          setType={setTemplateRecType}
                           weeklyDays={templateWeeklyDays}
                           setWeeklyDays={setTemplateWeeklyDays}
                           monthlyDays={templateMonthlyDays}
                           setMonthlyDays={setTemplateMonthlyDays}
+                          interval={templateInterval}
+                          setInterval={setTemplateInterval}
+                          months={templateMonths}
+                          setMonths={setTemplateMonths}
+                          holidayAdjustment={templateHolidayAdjustment}
+                          setHolidayAdjustment={setTemplateHolidayAdjustment}
                         />
                       </div>
 
@@ -1598,7 +1930,10 @@ export default function App() {
                         onClick={() => handleApplyTemplate(selectedTemplateId, templateBaseDate, {
                           type: templateRecType,
                           weeklyDays: templateWeeklyDays,
-                          monthlyDays: templateMonthlyDays as any
+                          monthlyDays: templateMonthlyDays as any,
+                          interval: templateInterval,
+                          months: templateMonths,
+                          holidayAdjustment: templateHolidayAdjustment
                         })}
                         disabled={
                           !templateBaseDate && 
@@ -1638,7 +1973,10 @@ export default function App() {
                       recurrence: {
                         type: recType,
                         weeklyDays: recType === 'weekly' ? weeklyDays : [],
-                        monthlyDays: recType === 'monthly' ? monthlyDays : []
+                        monthlyDays: recType === 'monthly' ? monthlyDays : [],
+                        interval: recType === 'monthly' ? interval : undefined,
+                        months: recType === 'monthly' ? months : undefined,
+                        holidayAdjustment: holidayAdjustment
                       }
                     };
                     if (editingTask) handleUpdateTask(editingTask.id, data);
@@ -1668,15 +2006,10 @@ export default function App() {
                     {recType !== 'none' ? t.deadline : (manualBaseType === 'deadline' ? t.deadline : t.startPoint)}
                   </label>
                   <div className="flex-1 flex gap-2">
-                    <input 
-                      type="date"
+                    <DatePicker 
                       value={manualBaseDate}
                       disabled={recType !== 'none'}
-                      onChange={e => setManualBaseDate(e.target.value)}
-                      className={cn(
-                        "flex-1 bg-bg border border-border rounded-lg px-4 py-3 text-xs text-text-primary focus:outline-none transition-all",
-                        recType !== 'none' ? "opacity-30 cursor-not-allowed bg-surface/50" : "focus:border-accent"
-                      )}
+                      onChange={setManualBaseDate}
                     />
                     {recType === 'none' && (
                       <div className="flex bg-bg p-1 rounded-lg border border-border">
@@ -1734,18 +2067,21 @@ export default function App() {
                   <div>
                     <label className="block text-[10px] font-bold uppercase text-text-secondary tracking-widest mb-4 text-center">{t.recurrenceModel}</label>
                     <div className="flex gap-1 bg-bg p-1 rounded-lg border border-border">
-                       {(['none', 'weekly', 'monthly'] as const).map(type => (
-                         <label key={type} className="flex-1">
+                       {(['none', 'recurring'] as const).map(mode => (
+                         <label key={mode} className="flex-1">
                            <input 
                             type="radio" 
                             name="recType" 
-                            value={type} 
-                            checked={recType === type}
-                            onChange={() => setRecType(type)}
+                            value={mode} 
+                            checked={mode === 'none' ? recType === 'none' : recType !== 'none'}
+                            onChange={() => {
+                              if (mode === 'none') setRecType('none');
+                              else if (recType === 'none') setRecType('weekly');
+                            }}
                             className="sr-only peer"
                            />
                            <div className="text-center py-2 text-[10px] rounded-md cursor-pointer transition-all uppercase tracking-widest font-black peer-checked:bg-accent peer-checked:text-text-on-accent text-text-secondary hover:text-text-primary">
-                             {t[type as keyof typeof t] || type}
+                             {mode === 'none' ? t.recurrenceNone : t.recurrenceExists}
                            </div>
                          </label>
                        ))}
@@ -1755,10 +2091,17 @@ export default function App() {
                   <div className="min-h-32">
                     <RecurrenceOptions 
                       type={recType} 
+                      setType={setRecType}
                       weeklyDays={weeklyDays} 
                       setWeeklyDays={setWeeklyDays}
                       monthlyDays={monthlyDays}
                       setMonthlyDays={setMonthlyDays}
+                      interval={interval}
+                      setInterval={setIntervalValue}
+                      months={months}
+                      setMonths={setMonths}
+                      holidayAdjustment={holidayAdjustment}
+                      setHolidayAdjustment={setHolidayAdjustment}
                     />
                   </div>
                 </div>
@@ -1799,19 +2142,24 @@ export default function App() {
               <form 
                 onSubmit={(e) => {
                   e.preventDefault();
+                  if (!holidayDate) return;
                   const formData = new FormData(e.currentTarget);
                   const newHoli: Holiday = {
                     id: generateId(),
-                    date: formData.get('date') as string,
+                    date: holidayDate,
                     name: formData.get('name') as string
                   };
                   setHolidays([...holidays, newHoli]);
+                  setHolidayDate('');
                   e.currentTarget.reset();
                 }}
                 className="flex flex-col gap-4 mb-8"
               >
                 <div className="flex gap-4">
-                  <input name="date" type="date" required className="bg-bg border border-border rounded-lg p-3 text-xs text-text-primary flex-1 focus:outline-none focus:border-accent" />
+                  <DatePicker 
+                    value={holidayDate}
+                    onChange={setHolidayDate}
+                  />
                   <input name="name" type="text" placeholder={t.holidayTitle} required className="bg-bg border border-border rounded-lg p-3 text-xs text-text-primary flex-2 focus:outline-none focus:border-accent" />
                 </div>
                 <button type="submit" className="bg-accent text-black p-3 rounded-lg text-xs font-black uppercase tracking-widest">{t.registerDate}</button>

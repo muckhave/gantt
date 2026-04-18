@@ -108,6 +108,20 @@ export const calculateTaskInstances = (
   const days = eachDayOfInterval({ start: viewStart, end: viewEnd });
 
   const getRawMatches = (date: Date): boolean => {
+    // Interval and Months filters
+    if (recurrence.type === 'monthly') {
+      // Month selection filter (1-12)
+      if (recurrence.months && recurrence.months.length > 0) {
+        if (!recurrence.months.includes(date.getMonth() + 1)) return false;
+      }
+
+      // Monthly Interval filter (e.g., every 3 months)
+      if (recurrence.interval && recurrence.interval > 1) {
+        const diffMonths = (date.getFullYear() - 2026) * 12 + date.getMonth();
+        if (diffMonths % recurrence.interval !== 0) return false;
+      }
+    }
+
     if (recurrence.type === 'weekly' && recurrence.weeklyDays) {
       return recurrence.weeklyDays.includes(date.getDay());
     }
@@ -125,20 +139,17 @@ export const calculateTaskInstances = (
           const n = parseInt(rule.split(':')[1]);
           const mStart = startOfMonth(date);
           const mEnd = endOfMonth(date);
-          const allWeekdays = eachDayOfInterval({ start: mStart, end: mEnd }).filter(d => !isWeekend(d));
-          if (n > 0 && n <= allWeekdays.length && isSameDay(date, allWeekdays[n - 1])) return true;
-        } else if (typeof rule === 'string' && rule.startsWith('relative-last-business-day:')) {
-          const offset = parseInt(rule.split(':')[1]) || 0;
+          const allBizDays = eachDayOfInterval({ start: mStart, end: mEnd }).filter(d => isBusinessDay(d, holidays));
+          if (n > 0 && n <= allBizDays.length && isSameDay(date, allBizDays[n - 1])) return true;
+        } else if (typeof rule === 'string' && rule.startsWith('last-nth-business-day:')) {
+          const n = parseInt(rule.split(':')[1]);
           const lastBiz = getLastBusinessDayOfMonth(date, holidays);
-          let target = lastBiz;
-          if (offset < 0) {
-            let count = 0;
-            while (count < Math.abs(offset)) {
-              target = addDays(target, -1);
-              if (isBusinessDay(target, holidays)) count++;
-            }
+          if (n === 1) {
+            if (isSameDay(date, lastBiz)) return true;
+          } else {
+            const target = subBusinessDays(lastBiz, n - 1, holidays);
+            if (isSameDay(date, target)) return true;
           }
-          if (isSameDay(date, target)) return true;
         } else if (typeof rule === 'string' && rule.startsWith('nth-dow:')) {
           const parts = rule.split(':');
           if (parts.length === 3) {
@@ -164,18 +175,37 @@ export const calculateTaskInstances = (
     if (!isBusinessDay(day, holidays)) return;
 
     let matched = false;
-    let checkDay = day;
-    
-    // Look back: does this business day OR any PRECEDING non-business days match?
-    // This shifts matches that land on a weekend FORWARD to the Monday (the 'day').
-    while (true) {
-      if (getRawMatches(checkDay)) {
+    const adj = recurrence.holidayAdjustment || 'next'; // Default to 'next' to preserve existing behavior
+
+    if (adj === 'skip') {
+      if (getRawMatches(day)) {
         matched = true;
-        break;
       }
-      checkDay = addDays(checkDay, -1);
-      // Stop looking if we hit the PREVIOUS business day (which would have caught its own preceding holidays)
-      if (isBusinessDay(checkDay, holidays)) break;
+    } else if (adj === 'prev') {
+      // Look forward: does THIS business day OR any FOLLOWING non-business days match?
+      // This shifts matches that land on a weekend BACK to the preceding Friday (the 'day').
+      let checkDay = day;
+      while (true) {
+        if (getRawMatches(checkDay)) {
+          matched = true;
+          break;
+        }
+        checkDay = addDays(checkDay, 1);
+        if (isBusinessDay(checkDay, holidays)) break;
+      }
+    } else {
+      // Look back: does this business day OR any PRECEDING non-business days match?
+      // This shifts matches that land on a weekend FORWARD to the Monday (the 'day').
+      let checkDay = day;
+      while (true) {
+        if (getRawMatches(checkDay)) {
+          matched = true;
+          break;
+        }
+        checkDay = addDays(checkDay, -1);
+        // Stop looking if we hit the PREVIOUS business day (which would have caught its own preceding holidays)
+        if (isBusinessDay(checkDay, holidays)) break;
+      }
     }
 
     if (matched) {
