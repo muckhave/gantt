@@ -808,9 +808,9 @@ const TemplateManager: React.FC<{
                         };
                         setEditingTemplate({...editingTemplate, items: [...editingTemplate.items, newItem]});
                       }}
-                      className="text-[10px] text-accent font-bold hover:underline py-1 px-2 bg-accent/5 rounded flex items-center gap-1 transition-colors hover:bg-accent/10"
+                      className="text-xs text-accent font-black py-2.5 px-6 bg-accent/5 border-2 border-accent/20 rounded-full flex items-center gap-2 transition-all hover:bg-accent hover:text-text-on-accent hover:border-accent hover:shadow-lg hover:shadow-accent/20 active:scale-[0.95]"
                     >
-                      <Plus size={12} /> {t.addTemplateItem}
+                      <Plus size={16} strokeWidth={3} /> {t.addTemplateItem}
                     </button>
                   </div>
                   
@@ -944,9 +944,9 @@ const TemplateManager: React.FC<{
                           const newItem: TemplateItem = { id: generateId(), title: 'First Task', parentId: null, offsetDays: 0, offsetDirection: isDeadline ? 'before' : 'after', parentPoint: isDeadline ? 'deadline' : 'start', targetPoint: isDeadline ? 'deadline' : 'start', leadTime: 1 };
                           setEditingTemplate({...editingTemplate, items: [newItem]});
                         }}
-                        className="text-xs text-accent font-bold px-6 py-3 border border-accent/20 rounded-xl hover:bg-accent/5 transition-colors"
+                        className="text-xs text-accent font-black px-8 py-4 border-2 border-accent/20 rounded-full hover:bg-accent hover:text-text-on-accent transition-all shadow-lg shadow-accent/10 active:scale-[0.95]"
                       >
-                        Add your first item
+                        <Plus size={16} className="inline mr-2" strokeWidth={3} /> {t.addTemplateItem}
                       </button>
                     </div>
                   )}
