@@ -15,7 +15,8 @@ import {
   addMonths,
   subMonths,
   differenceInDays,
-  startOfDay
+  startOfDay,
+  parseISO
 } from 'date-fns';
 import { 
   Plus, 
@@ -46,7 +47,8 @@ import {
   TemplateItem, 
   subBusinessDays,
   addBusinessDays,
-  calculateEndDate 
+  calculateEndDate,
+  calculateStartDate
 } from './types';
 import { cn, generateId, COLORS } from './lib/utils';
 import { calculateTaskInstances } from './scheduler';
@@ -556,7 +558,7 @@ const TemplateManager: React.FC<{
                             }}
                             className="flex-1 bg-bg border border-border rounded-lg px-4 py-2 text-xs text-text-primary cursor-pointer outline-none transition-colors focus:border-accent appearance-none"
                           >
-                            <option value="">(Base Date)</option>
+                            <option value="">{editingTemplate.baseType === 'deadline' ? `(${t.deadline})` : `(${t.startPoint})`}</option>
                             {editingTemplate.items.filter(i => i.id !== item.id).map(i => (
                               <option key={i.id} value={i.id}>{i.title}</option>
                             ))}
@@ -568,7 +570,9 @@ const TemplateManager: React.FC<{
                             <label className="w-24 flex-shrink-0 text-[10px] font-bold uppercase text-text-secondary tracking-widest">{t.calcBase}</label>
                             <div className="flex-1 flex gap-2 items-center">
                               <span className="text-[10px] font-bold uppercase text-text-primary whitespace-nowrap">
-                                {editingTemplate.baseType === 'deadline' ? t.parentPoint + t.deadlinePoint : t.parentPoint + t.startPoint}
+                                {item.parentId 
+                                  ? (editingTemplate.baseType === 'deadline' ? t.parentPoint + t.deadlinePoint : t.parentPoint + t.startPoint)
+                                  : (editingTemplate.baseType === 'deadline' ? t.deadline : t.startPoint)}
                               </span>
                               <span className="text-text-secondary text-[10px]">の</span>
                               <div className="flex bg-surface rounded p-0.5 border border-border">
@@ -824,16 +828,22 @@ export default function App() {
   const [recType, setRecType] = useState<RecurrenceType>('none');
   const [weeklyDays, setWeeklyDays] = useState<number[]>([]);
   const [monthlyDays, setMonthlyDays] = useState<(number | 'first-business-day' | 'last-business-day')[]>([]);
+  const [manualBaseType, setManualBaseType] = useState<'start-date' | 'deadline'>('start-date');
+  const [manualBaseDate, setManualBaseDate] = useState<string>('');
 
   useEffect(() => {
     if (editingTask) {
       setRecType(editingTask.recurrence.type);
       setWeeklyDays(editingTask.recurrence.weeklyDays || []);
       setMonthlyDays(editingTask.recurrence.monthlyDays || []);
+      setManualBaseType(editingTask.baseType || 'start-date');
+      setManualBaseDate(editingTask.baseDate || '');
     } else {
       setRecType('none');
       setWeeklyDays([]);
       setMonthlyDays([]);
+      setManualBaseType('start-date');
+      setManualBaseDate('');
     }
   }, [editingTask, isFormOpen]);
 
@@ -966,8 +976,9 @@ export default function App() {
     if (!template) return;
 
     let baseDate: Date;
+    // parseISO ensures "2023-10-10" is local 00:00:00, not UTC
     if (baseDateStr) {
-      baseDate = new Date(baseDateStr);
+      baseDate = startOfDay(parseISO(baseDateStr));
     } else if (recurrence && recurrence.type !== 'none') {
       const today = startOfDay(new Date());
       const oneYearLater = addDays(today, 365);
@@ -980,7 +991,7 @@ export default function App() {
         isCompleted: false,
         createdAt: Date.now()
       };
-      const instances = calculateTaskInstances(dummyTask, today, oneYearLater, holidays);
+      const instances = calculateTaskInstances(dummyTask, today, oneYearLater, holidays, tasks);
       if (instances.length > 0) {
         baseDate = instances[0].start;
       } else {
@@ -988,13 +999,6 @@ export default function App() {
       }
     } else {
       return;
-    }
-
-    // Adjust baseDate to previous business day if not a business day
-    if (!isBusinessDay(baseDate, holidays)) {
-      while (!isBusinessDay(baseDate, holidays)) {
-        baseDate = addDays(baseDate, -1);
-      }
     }
 
     const newTasksAdded: Task[] = [];
@@ -1021,6 +1025,7 @@ export default function App() {
       title: template.name,
       recurrence: recurrence || { type: 'none' },
       baseDate: format(baseDate, 'yyyy-MM-dd'),
+      baseType: template.baseType,
       leadTime: 0
     });
 
@@ -1035,19 +1040,22 @@ export default function App() {
         
         if (!item.parentId || itemMap.has(item.parentId)) {
           let referenceDate: Date;
+          let calculatedReferenceId: string | null = null;
           
           if (!item.parentId) {
             referenceDate = baseDate;
+            calculatedReferenceId = parentTask.id;
           } else {
-            const actualParentTaskId = itemMap.get(item.parentId);
-            const refParentTask = [...tasks, ...newTasksAdded].find(t => t.id === actualParentTaskId);
+            calculatedReferenceId = itemMap.get(item.parentId)!;
+            const refParentTask = [...tasks, ...newTasksAdded].find(t => t.id === calculatedReferenceId);
             
             if (refParentTask) {
-              const pStart = new Date(refParentTask.baseDate || '');
+              const pStart = parseISO(refParentTask.baseDate || '');
               const pEnd = calculateEndDate(pStart, refParentTask.leadTime, holidays);
               referenceDate = item.parentPoint === 'start' ? pStart : pEnd;
             } else {
               referenceDate = baseDate;
+              calculatedReferenceId = parentTask.id;
             }
           }
 
@@ -1056,33 +1064,16 @@ export default function App() {
             ? addBusinessDays(referenceDate, offset, holidays)
             : subBusinessDays(referenceDate, Math.abs(offset), holidays);
           
-          let finalStart: Date;
-          if (item.targetPoint === 'start') {
-            finalStart = targetDate;
-          } else {
-            finalStart = addDays(targetDate, -item.leadTime);
-          }
-          
-          let itemRecurrence: RecurrenceRule = { type: 'none' };
-          if (recurrence && recurrence.type === 'weekly') {
-            const diffDays = Math.round((finalStart.getTime() - baseDate.getTime()) / (1000 * 3600 * 24));
-            const shiftedWeeklyDays = (recurrence.weeklyDays || []).map(day => {
-              let newDay = (day + diffDays) % 7;
-              if (newDay < 0) newDay += 7;
-              return newDay;
-            });
-            itemRecurrence = { type: 'weekly', weeklyDays: shiftedWeeklyDays };
-          } else if (recurrence && recurrence.type === 'monthly') {
-            const dayOfMonth = finalStart.getDate();
-            itemRecurrence = { type: 'monthly', monthlyDays: [dayOfMonth] };
-          }
-
           const newTask = createLocalTask({
             title: item.title,
-            parentId: item.parentId ? itemMap.get(item.parentId) : parentTask.id,
+            parentId: calculatedReferenceId,
             leadTime: item.leadTime,
-            recurrence: itemRecurrence,
-            baseDate: format(finalStart, 'yyyy-MM-dd')
+            recurrence: { type: 'none' }, // Subtasks follow parent recurrence dynamically now
+            baseDate: format(targetDate, 'yyyy-MM-dd'),
+            baseType: item.targetPoint === 'start' ? 'start-date' : 'deadline',
+            offsetDays: item.offsetDays,
+            offsetDirection: item.offsetDirection,
+            parentPoint: item.parentPoint
           });
           itemMap.set(item.id, newTask.id);
           pendingItems.splice(i, 1);
@@ -1099,19 +1090,16 @@ export default function App() {
         ? addBusinessDays(baseDate, offset, holidays)
         : subBusinessDays(baseDate, Math.abs(offset), holidays);
       
-      let finalStart: Date;
-      if (item.targetPoint === 'start') {
-        finalStart = targetDate;
-      } else {
-        finalStart = addDays(targetDate, -item.leadTime);
-      }
-
       createLocalTask({
         title: item.title,
         parentId: parentTask.id,
         leadTime: item.leadTime,
         recurrence: { type: 'none' },
-        baseDate: format(finalStart, 'yyyy-MM-dd')
+        baseDate: format(targetDate, 'yyyy-MM-dd'),
+        baseType: item.targetPoint === 'start' ? 'start-date' : 'deadline',
+        offsetDays: item.offsetDays,
+        offsetDirection: item.offsetDirection,
+        parentPoint: item.parentPoint
       });
     });
 
@@ -1367,7 +1355,7 @@ export default function App() {
                       let allInstances: { start: Date; end: Date }[] = [];
                       
                       children.forEach(child => {
-                        const childInstances = calculateTaskInstances(child, startOfMonthView, endOfMonthView, holidays);
+                        const childInstances = calculateTaskInstances(child, startOfMonthView, endOfMonthView, holidays, tasks);
                         allInstances = [...allInstances, ...childInstances];
                         allInstances = [...allInstances, ...getDescendantInstances(child.id)];
                       });
@@ -1375,7 +1363,7 @@ export default function App() {
                       return allInstances;
                     };
 
-                    const ownInstances = calculateTaskInstances(task, startOfMonthView, endOfMonthView, holidays);
+                    const ownInstances = calculateTaskInstances(task, startOfMonthView, endOfMonthView, holidays, tasks);
                     const descendantInstances = getDescendantInstances(task.id);
                     
                     // If it has children, the visually effective instances should cover its children
@@ -1537,7 +1525,7 @@ export default function App() {
                         "w-32 flex-shrink-0 text-[10px] font-bold uppercase text-text-secondary tracking-widest transition-opacity",
                         templateRecType !== 'none' && "opacity-30"
                       )}>
-                        {t.deadline}
+                        {(!selectedTemplateId || templates.find(t => t.id === selectedTemplateId)?.baseType === 'deadline') ? t.deadline : t.startPoint}
                       </label>
                       <input 
                         type="date"
@@ -1622,7 +1610,9 @@ export default function App() {
                       >
                         {templateBaseDate || (templateRecType !== 'none' && (templateWeeklyDays.length > 0 || templateMonthlyDays.length > 0))
                           ? t.applyTemplate 
-                          : (templateRecType !== 'none' ? t.recurrenceRuleRequired : t.deadlineRequired)}
+                          : (templateRecType !== 'none' 
+                            ? t.recurrenceRuleRequired 
+                            : (templates.find(t => t.id === selectedTemplateId)?.baseType === 'deadline' ? t.deadlineRequired : t.startDateRequired))}
                       </button>
                     </div>
                   )}
@@ -1638,6 +1628,8 @@ export default function App() {
                       title: formData.get('title') as string,
                       leadTime: parseInt(formData.get('leadTime') as string) || 0,
                       parentId: (formData.get('parentId') as string) || null,
+                      baseDate: manualBaseDate || undefined,
+                      baseType: manualBaseType,
                       recurrence: {
                         type: recType,
                         weeklyDays: recType === 'weekly' ? weeklyDays : [],
@@ -1652,7 +1644,7 @@ export default function App() {
                   }}
                   className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300"
                 >
-                <div className="flex items-center gap-6">
+                 <div className="flex items-center gap-6">
                   <label className="w-32 flex-shrink-0 text-[10px] font-bold uppercase text-text-secondary tracking-widest">{t.title}</label>
                   <input 
                     name="title" 
@@ -1661,6 +1653,51 @@ export default function App() {
                     className="flex-1 bg-bg border border-border rounded-lg px-4 py-3 focus:outline-none focus:border-accent font-medium text-text-primary transition-colors"
                     placeholder={t.titlePlaceholder}
                   />
+                </div>
+
+                <div className="flex items-center gap-6">
+                  <label className={cn(
+                    "w-32 flex-shrink-0 text-[10px] font-bold uppercase text-text-secondary tracking-widest transition-opacity",
+                    recType !== 'none' && "opacity-30"
+                  )}>
+                    {recType !== 'none' ? t.deadline : (manualBaseType === 'deadline' ? t.deadline : t.startPoint)}
+                  </label>
+                  <div className="flex-1 flex gap-2">
+                    <input 
+                      type="date"
+                      value={manualBaseDate}
+                      disabled={recType !== 'none'}
+                      onChange={e => setManualBaseDate(e.target.value)}
+                      className={cn(
+                        "flex-1 bg-bg border border-border rounded-lg px-4 py-3 text-xs text-text-primary focus:outline-none transition-all",
+                        recType !== 'none' ? "opacity-30 cursor-not-allowed bg-surface/50" : "focus:border-accent"
+                      )}
+                    />
+                    {recType === 'none' && (
+                      <div className="flex bg-bg p-1 rounded-lg border border-border">
+                        <button
+                          type="button"
+                          onClick={() => setManualBaseType('start-date')}
+                          className={cn(
+                            "px-3 py-1 text-[8px] font-black uppercase rounded-md transition-all",
+                            manualBaseType === 'start-date' ? "bg-accent text-black" : "text-text-secondary"
+                          )}
+                        >
+                          {t.startPoint}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setManualBaseType('deadline')}
+                          className={cn(
+                            "px-3 py-1 text-[8px] font-black uppercase rounded-md transition-all",
+                            manualBaseType === 'deadline' ? "bg-accent text-black" : "text-text-secondary"
+                          )}
+                        >
+                          {t.deadlinePoint}
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </div>
                 
                 <div className="flex items-center gap-6">

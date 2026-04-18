@@ -18,6 +18,10 @@ export interface Task {
   color?: string;
   createdAt: number;
   baseDate?: string; // YYYY-MM-DD for non-recurring tasks
+  baseType?: 'deadline' | 'start-date';
+  offsetDays?: number;
+  offsetDirection?: 'before' | 'after';
+  parentPoint?: 'start' | 'deadline';
 }
 
 export interface TemplateItem {
@@ -109,6 +113,19 @@ export const calculateEndDate = (startDate: Date, leadTime: number, holidays: Ho
     current = addDays(current, 1);
     if (isBusinessDay(current, holidays)) {
       bDays++;
+    }
+  }
+  return current;
+};
+
+export const calculateStartDate = (endDate: Date, leadTime: number, holidays: Holiday[]): Date => {
+  if (leadTime <= 0) return endDate;
+  let current = endDate;
+  let bDays = isBusinessDay(endDate, holidays) ? 1 : 0;
+  while (bDays < leadTime) {
+    current = addDays(current, -1);
+    if (isBusinessDay(current, holidays)) {
+       bDays++;
     }
   }
   return current;

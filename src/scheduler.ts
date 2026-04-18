@@ -9,9 +9,23 @@ import {
   startOfMonth,
   endOfMonth,
   isWeekend,
-  lastDayOfMonth
+  lastDayOfMonth,
+  startOfDay,
+  parseISO
 } from 'date-fns';
-import { Task, Holiday, RecurrenceRule, getFirstBusinessDayOfMonth, getLastBusinessDayOfMonth, isBusinessDay, isHoliday, calculateEndDate } from './types';
+import { 
+  Task, 
+  Holiday, 
+  RecurrenceRule, 
+  getFirstBusinessDayOfMonth, 
+  getLastBusinessDayOfMonth, 
+  isBusinessDay, 
+  isHoliday, 
+  calculateEndDate, 
+  calculateStartDate,
+  addBusinessDays,
+  subBusinessDays
+} from './types';
 
 /**
  * Calculates scheduled dates for a task within a window.
@@ -21,16 +35,65 @@ export const calculateTaskInstances = (
   task: Task, 
   viewStart: Date, 
   viewEnd: Date, 
-  holidays: Holiday[]
+  holidays: Holiday[],
+  allTasks: Task[] = []
 ): { start: Date; end: Date }[] => {
   const instances: { start: Date; end: Date }[] = [];
-  const { recurrence, leadTime } = task;
+  const { recurrence, leadTime, baseType } = task;
+
+  // If it's a subtask with relative scheduling info, depend on parent's instances
+  if (task.parentId && task.offsetDays !== undefined && recurrence.type === 'none') {
+    const parent = allTasks.find(t => t.id === task.parentId);
+    if (parent) {
+      const parentInstances = calculateTaskInstances(parent, viewStart, viewEnd, holidays, allTasks);
+      parentInstances.forEach(pInst => {
+        const referenceDate = task.parentPoint === 'start' ? pInst.start : pInst.end;
+        const offset = task.offsetDirection === 'before' ? -task.offsetDays! : task.offsetDays!;
+        
+        const targetDate = offset >= 0 
+          ? addBusinessDays(referenceDate, offset, holidays)
+          : subBusinessDays(referenceDate, Math.abs(offset), holidays);
+        
+        let start: Date;
+        let end: Date;
+
+        if (task.baseType === 'deadline') {
+          end = targetDate;
+          start = calculateStartDate(end, leadTime, holidays);
+        } else {
+          start = targetDate;
+          end = calculateEndDate(start, leadTime, holidays);
+        }
+        
+        if (start <= viewEnd && end >= viewStart) {
+          instances.push({ start, end });
+        }
+      });
+      return instances;
+    }
+  }
 
   if (recurrence.type === 'none') {
-    const start = task.baseDate ? new Date(task.baseDate) : new Date(task.createdAt);
-    if (isNaN(start.getTime())) return [];
+    let anchor = task.baseDate ? parseISO(task.baseDate) : startOfDay(new Date(task.createdAt));
+    if (isNaN(anchor.getTime())) return [];
 
-    const end = calculateEndDate(start, leadTime, holidays);
+    // Shift to previous business day if it lands on a non-business day
+    if (!isBusinessDay(anchor, holidays)) {
+      while (!isBusinessDay(anchor, holidays)) {
+        anchor = addDays(anchor, -1);
+      }
+    }
+
+    let start: Date;
+    let end: Date;
+
+    if (baseType === 'deadline') {
+      end = anchor;
+      start = calculateStartDate(end, leadTime, holidays);
+    } else {
+      start = anchor;
+      end = calculateEndDate(start, leadTime, holidays);
+    }
     
     // Check overlap
     if (start <= viewEnd && end >= viewStart) {
@@ -103,19 +166,31 @@ export const calculateTaskInstances = (
     let matched = false;
     let checkDay = day;
     
-    // Look ahead: does this business day OR any following non-business days match?
+    // Look back: does this business day OR any PRECEDING non-business days match?
+    // This shifts matches that land on a weekend FORWARD to the Monday (the 'day').
     while (true) {
       if (getRawMatches(checkDay)) {
         matched = true;
         break;
       }
-      checkDay = addDays(checkDay, 1);
-      // Stop looking if we hit a business day (which would catch its own subsequent holidays)
+      checkDay = addDays(checkDay, -1);
+      // Stop looking if we hit the PREVIOUS business day (which would have caught its own preceding holidays)
       if (isBusinessDay(checkDay, holidays)) break;
     }
 
     if (matched) {
-      instances.push({ start: day, end: calculateEndDate(day, leadTime, holidays) });
+      let start: Date;
+      let end: Date;
+
+      if (baseType === 'start-date') {
+        start = day;
+        end = calculateEndDate(start, leadTime, holidays);
+      } else {
+        end = day;
+        start = calculateStartDate(end, leadTime, holidays);
+      }
+      
+      instances.push({ start, end });
     }
   });
 
