@@ -990,6 +990,13 @@ export default function App() {
       return;
     }
 
+    // Adjust baseDate to previous business day if not a business day
+    if (!isBusinessDay(baseDate, holidays)) {
+      while (!isBusinessDay(baseDate, holidays)) {
+        baseDate = addDays(baseDate, -1);
+      }
+    }
+
     const newTasksAdded: Task[] = [];
     
     // Internal helper to avoid state issues during loop
