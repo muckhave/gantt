@@ -46,6 +46,8 @@ import {
   isBusinessDay, 
   TaskTemplateSet, 
   TemplateItem, 
+  Status,
+  StatusSet,
   subBusinessDays,
   addBusinessDays,
   calculateEndDate,
@@ -206,24 +208,258 @@ const DatePicker: React.FC<{
   );
 };
 
+const StatusBadge: React.FC<{
+  task: Task;
+  statusSets: StatusSet[];
+  onUpdate: (id: string, data: Partial<Task>) => void;
+}> = ({ task, statusSets, onUpdate }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const statusSet = statusSets.find(s => s.id === task.statusSetId);
+  if (!statusSet) return null;
+
+  const currentStatus = statusSet.statuses.find(s => s.id === task.statusId);
+
+  return (
+    <div className="relative">
+      <div
+        onClick={(e) => { e.stopPropagation(); setIsOpen(!isOpen); }}
+        className="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase cursor-pointer transition-all hover:brightness-110 active:scale-95 border whitespace-nowrap"
+        style={{ 
+          backgroundColor: `${currentStatus?.color || '#94a3b8'}20`,
+          borderColor: `${currentStatus?.color || '#94a3b8'}40`,
+          color: currentStatus?.color || '#94a3b8'
+        }}
+      >
+        {currentStatus?.name || '---'}
+      </div>
+      <AnimatePresence>
+        {isOpen && (
+          <>
+            <div className="fixed inset-0 z-40" onClick={(e) => { e.stopPropagation(); setIsOpen(false); }} />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 5 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 5 }}
+              className="absolute left-0 mt-2 bg-surface border border-border rounded-lg shadow-2xl z-50 p-1 min-w-[120px]"
+            >
+              {statusSet.statuses.map(s => (
+                <button
+                  key={s.id}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onUpdate(task.id, { statusId: s.id });
+                    setIsOpen(false);
+                  }}
+                  className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-white/5 rounded text-[10px] text-text-primary text-left transition-colors"
+                >
+                  <div className="w-2 h-2 rounded-full" style={{ backgroundColor: s.color }} />
+                  {s.name}
+                </button>
+              ))}
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+};
+
+const StatusSetManager: React.FC<{
+  statusSets: StatusSet[];
+  onSave: (sets: StatusSet[]) => void;
+  onClose: () => void;
+}> = ({ statusSets, onSave, onClose }) => {
+  const [editingSet, setEditingSet] = useState<StatusSet | null>(null);
+
+  const handleAddSet = () => {
+    setEditingSet({ 
+      id: generateId(), 
+      name: 'New Status Set', 
+      statuses: [
+        { id: generateId(), name: 'To Do', color: '#94a3b8' },
+        { id: generateId(), name: 'Completed', color: '#10b981' }
+      ] 
+    });
+  };
+
+  const handleSaveEditing = () => {
+    if (!editingSet) return;
+    const next = statusSets.some(s => s.id === editingSet.id)
+      ? statusSets.map(s => s.id === editingSet.id ? editingSet : s)
+      : [...statusSets, editingSet];
+    onSave(next);
+    setEditingSet(null);
+  };
+
+  const handleDelete = (id: string) => {
+    onSave(statusSets.filter(s => s.id !== id));
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-6 backdrop-blur-md bg-black/60">
+      <motion.div 
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        className="w-full max-w-2xl bg-surface border border-border rounded-xl shadow-2xl p-8 flex flex-col max-h-[90vh]"
+      >
+        <div className="flex items-center justify-between mb-8 border-b border-border pb-6">
+          <div className="flex items-center gap-4">
+            <h2 className="text-xl font-bold text-text-primary">{t.statusManage}</h2>
+            {editingSet && (
+              <span className="text-[10px] font-bold px-2 py-1 bg-accent/10 text-accent rounded uppercase">
+                Editing: {editingSet.name}
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-3">
+            {!editingSet && (
+              <button 
+                onClick={handleAddSet}
+                className="px-4 py-2 bg-accent text-text-on-accent text-[11px] font-bold uppercase rounded hover:brightness-110 shadow-lg shadow-accent/20"
+              >
+                {t.newStatusSet}
+              </button>
+            )}
+            <button onClick={onClose} className="p-2 text-text-secondary hover:text-text-primary transition-colors">
+              <X size={20} />
+            </button>
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto min-h-0 pr-2 custom-scrollbar">
+          {editingSet ? (
+            <div className="space-y-6">
+              <div>
+                <label className="block text-[10px] font-bold uppercase text-text-secondary mb-2 tracking-widest">{t.statusSetName}</label>
+                <input 
+                  value={editingSet.name}
+                  onChange={e => setEditingSet({...editingSet, name: e.target.value})}
+                  className="w-full bg-bg border border-border rounded-xl px-4 py-3 text-text-primary outline-none focus:border-accent text-sm"
+                />
+              </div>
+
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <label className="text-[10px] font-bold uppercase text-text-secondary tracking-widest">{t.status}</label>
+                  <button 
+                    onClick={() => {
+                      const newStatus: Status = { id: generateId(), name: 'New Status', color: '#3b82f6' };
+                      setEditingSet({...editingSet, statuses: [...editingSet.statuses, newStatus]});
+                    }}
+                    className="text-[10px] text-accent font-black py-2 px-4 bg-accent/5 border border-accent/20 rounded-full hover:bg-accent hover:text-text-on-accent transition-all"
+                  >
+                    + {t.addStatus}
+                  </button>
+                </div>
+
+                <div className="space-y-3">
+                  {editingSet.statuses.map((s, idx) => (
+                    <div key={s.id} className="flex items-center gap-4 p-4 bg-bg rounded-xl border border-border group/s">
+                      <input 
+                        type="color"
+                        value={s.color}
+                        onChange={e => {
+                          const sts = [...editingSet.statuses];
+                          sts[idx] = {...s, color: e.target.value};
+                          setEditingSet({...editingSet, statuses: sts});
+                        }}
+                        className="w-10 h-10 rounded-lg overflow-hidden bg-transparent border-none cursor-pointer p-0"
+                      />
+                      <input 
+                        value={s.name}
+                        onChange={e => {
+                          const sts = [...editingSet.statuses];
+                          sts[idx] = {...s, name: e.target.value};
+                          setEditingSet({...editingSet, statuses: sts});
+                        }}
+                        className="flex-1 bg-surface border border-border rounded-lg px-4 py-2 text-xs text-text-primary outline-none focus:border-accent"
+                        placeholder={t.statusName}
+                      />
+                      <button 
+                        onClick={() => {
+                          setEditingSet({...editingSet, statuses: editingSet.statuses.filter(st => st.id !== s.id)});
+                        }}
+                        className="text-text-secondary hover:text-red-400 p-2"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex gap-4 pt-4 border-t border-border">
+                <button 
+                  onClick={handleSaveEditing}
+                  className="flex-1 bg-accent text-text-on-accent py-3 rounded-xl text-[11px] font-bold uppercase"
+                >
+                  {t.saveStatusSet}
+                </button>
+                <button 
+                  onClick={() => setEditingSet(null)}
+                  className="px-8 py-3 bg-bg border border-border rounded-xl text-[11px] font-bold uppercase text-text-secondary"
+                >
+                  {t.discard}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-4">
+              {statusSets.map(s => (
+                <div 
+                  key={s.id} 
+                  className="p-6 bg-surface border border-border rounded-2xl cursor-pointer hover:border-accent/40 transition-all flex items-center justify-between"
+                  onClick={() => setEditingSet(s)}
+                >
+                  <div>
+                    <h3 className="font-bold text-lg text-text-primary mb-2">{s.name}</h3>
+                    <div className="flex gap-2">
+                       {s.statuses.map(st => (
+                         <div key={st.id} className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: st.color }} />
+                       ))}
+                       <span className="text-[10px] text-text-secondary uppercase font-bold ml-2">{s.statuses.length} Statuses</span>
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); handleDelete(s.id); }}
+                      className="p-3 bg-bg border border-border rounded-xl text-text-secondary hover:text-red-400"
+                    >
+                      <Trash2 size={18} />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </motion.div>
+    </div>
+  );
+};
+
 // --- Components ---
 
 const TaskRow: React.FC<{ 
   task: Task; 
   level: number; 
   isExpanded: boolean; 
+  statusSets: StatusSet[];
   onToggle: () => void;
   onDelete: (id: string) => void;
   onComplete: (id: string) => void;
   onEdit: (task: Task) => void;
+  onUpdate: (id: string, data: Partial<Task>) => void;
 }> = ({ 
   task, 
   level, 
   isExpanded, 
+  statusSets,
   onToggle, 
   onDelete, 
   onComplete,
-  onEdit 
+  onEdit,
+  onUpdate
 }) => {
   return (
     <div 
@@ -241,16 +477,22 @@ const TaskRow: React.FC<{
         >
           {isExpanded ? <ChevronDown size={14} className="text-text-secondary" /> : <ChevronRight size={14} className="text-text-secondary" />}
         </button>
-        <button 
-          onClick={(e) => { e.stopPropagation(); onComplete(task.id); }}
-          className="hover:scale-110 transition-transform"
-        >
-          {task.isCompleted ? (
-            <CheckCircle2 size={16} className="text-accent" />
-          ) : (
-            <Circle size={16} className="text-text-secondary opacity-40" />
-          )}
-        </button>
+        
+        {task.statusSetId ? (
+          <StatusBadge task={task} statusSets={statusSets} onUpdate={onUpdate} />
+        ) : (
+          <button 
+            onClick={(e) => { e.stopPropagation(); onComplete(task.id); }}
+            className="hover:scale-110 transition-transform flex-shrink-0"
+          >
+            {task.isCompleted ? (
+              <CheckCircle2 size={16} className="text-accent" />
+            ) : (
+              <Circle size={16} className="text-text-secondary opacity-40" />
+            )}
+          </button>
+        )}
+        
         <span className={cn(
           "truncate text-[13px] font-medium transition-opacity", 
           task.isCompleted ? "line-through opacity-30" : "text-text-primary"
@@ -674,9 +916,10 @@ const TemplatePreview: React.FC<{ items: TemplateItem[]; baseType: 'deadline' | 
 
 const TemplateManager: React.FC<{
   templates: TaskTemplateSet[];
+  statusSets: StatusSet[];
   onSave: (templates: TaskTemplateSet[]) => void;
   onClose: () => void;
-}> = ({ templates, onSave, onClose }) => {
+}> = ({ templates, statusSets, onSave, onClose }) => {
   const [editingTemplate, setEditingTemplate] = useState<TaskTemplateSet | null>(null);
 
   useEffect(() => {
@@ -788,6 +1031,43 @@ const TemplateManager: React.FC<{
                       </button>
                     ))}
                   </div>
+                </div>
+
+                <div className="p-4 bg-bg border border-border rounded-xl space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase text-text-secondary mb-1 tracking-widest">{t.useStatusManagement}</label>
+                      <p className="text-[9px] text-text-secondary opacity-60">各タスクに個別のステータスを設定できるようにします</p>
+                    </div>
+                    <button
+                      onClick={() => setEditingTemplate({...editingTemplate, statusEnabled: !editingTemplate.statusEnabled, statusSetId: !editingTemplate.statusEnabled ? statusSets[0]?.id || null : null})}
+                      className={cn(
+                        "relative w-12 h-6 rounded-full transition-colors",
+                        editingTemplate.statusEnabled ? "bg-accent" : "bg-border"
+                      )}
+                    >
+                      <div className={cn(
+                        "absolute top-1 w-4 h-4 bg-white rounded-full transition-all",
+                        editingTemplate.statusEnabled ? "left-7" : "left-1"
+                      )} />
+                    </button>
+                  </div>
+
+                  {editingTemplate.statusEnabled && (
+                    <div className="pt-2 border-t border-border/50">
+                      <label className="block text-[10px] font-bold uppercase text-text-secondary mb-2 tracking-widest">{t.selectStatusSet}</label>
+                      <select
+                        value={editingTemplate.statusSetId || ''}
+                        onChange={e => setEditingTemplate({...editingTemplate, statusSetId: e.target.value})}
+                        className="w-full bg-surface border border-border rounded-lg px-4 py-2 text-xs text-text-primary outline-none focus:border-accent appearance-none cursor-pointer"
+                      >
+                        <option value="">{t.selectStatusSet}</option>
+                        {statusSets.map(set => (
+                          <option key={set.id} value={set.id}>{set.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
                 </div>
 
                 <div className="space-y-4">
@@ -933,6 +1213,30 @@ const TemplateManager: React.FC<{
                         </button>
                       </div>
                     ))}
+
+                    {editingTemplate.items.length > 0 && (
+                      <div className="flex justify-center pt-2">
+                        <button 
+                          onClick={() => {
+                            const isDeadline = editingTemplate.baseType === 'deadline';
+                            const newItem: TemplateItem = { 
+                              id: generateId(), 
+                              title: 'Subtask', 
+                              parentId: null, 
+                              offsetDays: 0, 
+                              offsetDirection: isDeadline ? 'before' : 'after',
+                              parentPoint: isDeadline ? 'deadline' : 'start',
+                              targetPoint: isDeadline ? 'deadline' : 'start',
+                              leadTime: 1 
+                            };
+                            setEditingTemplate({...editingTemplate, items: [...editingTemplate.items, newItem]});
+                          }}
+                          className="w-12 h-12 flex items-center justify-center bg-accent/5 border-2 border-dashed border-accent/20 text-accent rounded-full hover:bg-accent hover:text-text-on-accent hover:border-accent transition-all hover:scale-110 active:scale-90"
+                        >
+                          <Plus size={24} strokeWidth={3} />
+                        </button>
+                      </div>
+                    )}
                   </div>
 
                   {editingTemplate.items.length === 0 && (
@@ -1084,11 +1388,13 @@ export default function App() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [holidays, setHolidays] = useState<Holiday[]>([]);
   const [templates, setTemplates] = useState<TaskTemplateSet[]>([]);
+  const [statusSets, setStatusSets] = useState<StatusSet[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [isHolidayManagerOpen, setIsHolidayManagerOpen] = useState(false);
+  const [isStatusManagerOpen, setIsStatusManagerOpen] = useState(false);
   const [holidayDate, setHolidayDate] = useState<string>('');
   const [isTemplateManagerOpen, setIsTemplateManagerOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
@@ -1162,19 +1468,22 @@ export default function App() {
   useEffect(() => {
     const loadData = async () => {
       try {
-        const [tasksRes, holidaysRes, templatesRes] = await Promise.all([
+        const [tasksRes, holidaysRes, templatesRes, statusSetsRes] = await Promise.all([
           fetch('/api/tasks'),
           fetch('/api/holidays'),
-          fetch('/api/templates')
+          fetch('/api/templates'),
+          fetch('/api/status-sets')
         ]);
-        const [tasksData, holidaysData, templatesData] = await Promise.all([
+        const [tasksData, holidaysData, templatesData, statusSetsData] = await Promise.all([
           tasksRes.json(),
           holidaysRes.json(),
-          templatesRes.json()
+          templatesRes.json(),
+          statusSetsRes.json()
         ]);
         setTasks(tasksData);
         setHolidays(holidaysData);
         setTemplates(templatesData);
+        setStatusSets(statusSetsData);
       } catch (err) {
         console.error('Failed to load data:', err);
       } finally {
@@ -1220,6 +1529,18 @@ export default function App() {
     }
   };
 
+  const saveStatusSets = async (newSets: StatusSet[]) => {
+    try {
+      await fetch('/api/status-sets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newSets)
+      });
+    } catch (err) {
+      console.error('Failed to save status sets:', err);
+    }
+  };
+
   useEffect(() => {
     if (!loading) saveTasks(tasks);
   }, [tasks, loading]);
@@ -1231,6 +1552,10 @@ export default function App() {
   useEffect(() => {
     if (!loading) saveTemplates(templates);
   }, [templates, loading]);
+
+  useEffect(() => {
+    if (!loading) saveStatusSets(statusSets);
+  }, [statusSets, loading]);
 
   // Hierarchy Logic
   const hierarchicalTasks = useMemo(() => {
@@ -1342,12 +1667,18 @@ export default function App() {
       return task;
     };
 
+    const initialStatusId = template.statusEnabled && template.statusSetId 
+      ? statusSets.find(s => s.id === template.statusSetId)?.statuses[0]?.id 
+      : undefined;
+
     const parentTask = createLocalTask({
       title: template.name,
       recurrence: recurrence || { type: 'none' },
       baseDate: format(baseDate, 'yyyy-MM-dd'),
       baseType: template.baseType,
-      leadTime: 0
+      leadTime: 0,
+      statusId: initialStatusId,
+      statusSetId: template.statusEnabled ? template.statusSetId : undefined
     });
 
     const itemMap = new Map<string, string>();
@@ -1394,7 +1725,9 @@ export default function App() {
             baseType: item.targetPoint === 'start' ? 'start-date' : 'deadline',
             offsetDays: item.offsetDays,
             offsetDirection: item.offsetDirection,
-            parentPoint: item.parentPoint
+            parentPoint: item.parentPoint,
+            statusId: initialStatusId,
+            statusSetId: template.statusEnabled ? template.statusSetId : undefined
           });
           itemMap.set(item.id, newTask.id);
           pendingItems.splice(i, 1);
@@ -1507,6 +1840,12 @@ export default function App() {
         >
           <Settings size={14} /> <span>{t.templateManage}</span>
         </button>
+        <button 
+          onClick={() => setIsStatusManagerOpen(true)}
+          className="flex items-center gap-3 w-full px-5 py-3 text-xs text-text-secondary hover:text-text-primary transition-colors"
+        >
+          <Settings size={14} /> <span>{t.statusManage}</span>
+        </button>
 
         <div className="mt-auto border-t border-border p-4">
           <button 
@@ -1585,10 +1924,12 @@ export default function App() {
                   task={task} 
                   level={level} 
                   isExpanded={expandedIds.has(task.id)}
+                  statusSets={statusSets}
                   onToggle={() => toggleExpand(task.id)}
                   onDelete={deleteTask}
                   onComplete={toggleComplete}
                   onEdit={(t: Task) => { setEditingTask(t); setIsFormOpen(true); }}
+                  onUpdate={handleUpdateTask}
                 />
               ))}
               {tasks.length === 0 && (
@@ -1747,7 +2088,11 @@ export default function App() {
                               style={{ 
                                 left: `${startOffset * dayWidth}px`, 
                                 width: `${duration * dayWidth - 4}px`,
-                                backgroundColor: hasChildren ? '#333' : (task.color || '#4da6ff'),
+                                backgroundColor: hasChildren ? '#333' : (
+                                  task.statusSetId 
+                                    ? (statusSets.find(s => s.id === task.statusSetId)?.statuses.find(st => st.id === task.statusId)?.color || task.color || '#4da6ff')
+                                    : (task.color || '#4da6ff')
+                                ),
                                 top: '10px',
                                 boxShadow: hasChildren ? 'none' : `0 4px 12px ${task.color}33`,
                                 borderLeft: hasChildren ? `2px solid #000` : 'none',
@@ -1757,9 +2102,16 @@ export default function App() {
                               title={`${task.title} (${format(instance.start, 'MMM d')} - ${format(instance.end, 'MMM d')})`}
                             >
                               {!hasChildren && (
-                                <span className="text-[11px] truncate text-black font-bold tracking-tight">
-                                  {task.title}
-                                </span>
+                                <div className="flex items-center gap-2 w-full overflow-hidden">
+                                  {task.statusSetId && (
+                                    <div className="flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+                                      <StatusBadge task={task} statusSets={statusSets} onUpdate={handleUpdateTask} />
+                                    </div>
+                                  )}
+                                  <span className="text-[11px] truncate text-black font-bold tracking-tight">
+                                    {task.title}
+                                  </span>
+                                </div>
                               )}
                               {hasChildren && (
                                 <>
@@ -1793,6 +2145,13 @@ export default function App() {
              v1.3.0 {t.brand} Japanese Theme
           </div>
         </footer>
+        {isStatusManagerOpen && (
+          <StatusSetManager
+            statusSets={statusSets}
+            onSave={setStatusSets}
+            onClose={() => setIsStatusManagerOpen(false)}
+          />
+        )}
       </main>
 
       {/* Task Form Modal */}
@@ -1852,19 +2211,22 @@ export default function App() {
                         ))}
                       </select>
                     </div>
-                    <div className="flex items-center gap-6">
-                      <label className={cn(
-                        "w-32 flex-shrink-0 text-[10px] font-bold uppercase text-text-secondary tracking-widest transition-opacity",
-                        templateRecType !== 'none' && "opacity-30"
-                      )}>
-                        {(!selectedTemplateId || templates.find(t => t.id === selectedTemplateId)?.baseType === 'deadline') ? t.deadline : t.startPoint}
-                      </label>
-                      <DatePicker 
-                        value={templateBaseDate}
-                        disabled={templateRecType !== 'none'}
-                        onChange={setTemplateBaseDate}
-                      />
-                    </div>
+
+                    {selectedTemplateId && (
+                      <div className="flex items-center gap-6 animate-in fade-in slide-in-from-top-2 duration-300">
+                        <label className={cn(
+                          "w-32 flex-shrink-0 text-[10px] font-bold uppercase text-text-secondary tracking-widest transition-opacity",
+                          templateRecType !== 'none' && "opacity-30"
+                        )}>
+                          {(templates.find(t => t.id === selectedTemplateId)?.baseType === 'deadline') ? t.deadline : t.startPoint}
+                        </label>
+                        <DatePicker 
+                          value={templateBaseDate}
+                          disabled={templateRecType !== 'none'}
+                          onChange={setTemplateBaseDate}
+                        />
+                      </div>
+                    )}
                   </div>
                   {selectedTemplateId && (
                     <div className="mt-6 p-6 bg-bg/50 border border-border rounded-xl space-y-6">
@@ -2201,6 +2563,7 @@ export default function App() {
       {isTemplateManagerOpen && (
         <TemplateManager 
           templates={templates}
+          statusSets={statusSets}
           onSave={setTemplates}
           onClose={() => setIsTemplateManagerOpen(false)}
         />

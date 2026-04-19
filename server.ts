@@ -9,6 +9,7 @@ const DATA_DIR = path.join(__dirname, "data");
 const TASKS_FILE = path.join(DATA_DIR, "tasks.csv");
 const HOLIDAYS_FILE = path.join(DATA_DIR, "holidays.csv");
 const TEMPLATES_FILE = path.join(DATA_DIR, "templates.csv");
+const STATUS_SETS_FILE = path.join(DATA_DIR, "status_sets.json");
 
 async function ensureDataDir() {
   try {
@@ -20,7 +21,7 @@ async function ensureDataDir() {
 
 // CSV Conversion Helpers
 function tasksToCsv(tasks: any[]): string {
-  const header = "id,title,parentId,leadTime,recurrenceType,weeklyDays,monthlyDays,isCompleted,color,createdAt,baseDate\n";
+  const header = "id,title,parentId,leadTime,recurrenceType,weeklyDays,monthlyDays,isCompleted,color,createdAt,baseDate,statusId,statusSetId\n";
   const rows = tasks.map(t => {
     return [
       t.id,
@@ -33,7 +34,9 @@ function tasksToCsv(tasks: any[]): string {
       t.isCompleted,
       t.color || "",
       t.createdAt,
-      t.baseDate || ""
+      t.baseDate || "",
+      t.statusId || "",
+      t.statusSetId || ""
     ].join(",");
   });
   return header + rows.join("\n");
@@ -44,7 +47,6 @@ function csvToTasks(csv: string): any[] {
   if (lines.length <= 1) return [];
   const rows = lines.slice(1);
   return rows.map(row => {
-    // Simple CSV parser supporting quotes
     const values: string[] = [];
     let current = "";
     let inQuotes = false;
@@ -70,7 +72,9 @@ function csvToTasks(csv: string): any[] {
       isCompleted: values[7] === 'true',
       color: values[8],
       createdAt: parseInt(values[9]),
-      baseDate: values[10] || undefined
+      baseDate: values[10] || undefined,
+      statusId: values[11] || undefined,
+      statusSetId: values[12] || undefined
     };
   });
 }
@@ -96,12 +100,14 @@ function csvToHolidays(csv: string): any[] {
 }
 
 function templatesToCsv(templates: any[]): string {
-  const header = "id,name,items\n";
+  const header = "id,name,items,statusEnabled,statusSetId\n";
   const rows = templates.map(t => {
     return [
       t.id,
       `"${t.name.replace(/"/g, '""')}"`,
-      `"${JSON.stringify(t.items).replace(/"/g, '""')}"`
+      `"${JSON.stringify(t.items).replace(/"/g, '""')}"`,
+      t.statusEnabled,
+      t.statusSetId || ""
     ].join(",");
   });
   return header + rows.join("\n");
@@ -112,7 +118,6 @@ function csvToTemplates(csv: string): any[] {
   if (lines.length <= 1) return [];
   const rows = lines.slice(1);
   return rows.map(row => {
-    // Parser for templates (handles nested JSON with escaped quotes)
     const values: string[] = [];
     let current = "";
     let inQuotes = false;
@@ -134,7 +139,9 @@ function csvToTemplates(csv: string): any[] {
     return {
       id: values[0],
       name: values[1],
-      items: JSON.parse(values[2] || "[]")
+      items: JSON.parse(values[2] || "[]"),
+      statusEnabled: values[3] === 'true',
+      statusSetId: values[4] || null
     };
   });
 }
@@ -189,6 +196,29 @@ async function startServer() {
 
   app.post("/api/templates", async (req, res) => {
     await fs.writeFile(TEMPLATES_FILE, templatesToCsv(req.body), "utf-8");
+    res.json({ success: true });
+  });
+
+  app.get("/api/status-sets", async (req, res) => {
+    try {
+      const data = await fs.readFile(STATUS_SETS_FILE, "utf-8");
+      res.json(JSON.parse(data));
+    } catch {
+      res.json([{
+        id: "1",
+        name: "標準ステータス",
+        statuses: [
+          { id: "s1", name: "未着手", color: "#94a3b8" },
+          { id: "s2", name: "進行中", color: "#3b82f6" },
+          { id: "s3", name: "確認中", color: "#f59e0b" },
+          { id: "s4", name: "完了", color: "#10b981" }
+        ]
+      }]);
+    }
+  });
+
+  app.post("/api/status-sets", async (req, res) => {
+    await fs.writeFile(STATUS_SETS_FILE, JSON.stringify(req.body, null, 2), "utf-8");
     res.json({ success: true });
   });
 

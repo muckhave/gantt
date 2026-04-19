@@ -27,6 +27,8 @@ export interface Task {
   offsetDays?: number;
   offsetDirection?: 'before' | 'after';
   parentPoint?: 'start' | 'deadline';
+  statusId?: string; // Reference to Status.id
+  statusSetId?: string; // Reference to StatusSet.id
 }
 
 export interface TemplateItem {
@@ -40,11 +42,25 @@ export interface TemplateItem {
   leadTime: number; // calendar days
 }
 
+export interface Status {
+  id: string;
+  name: string;
+  color: string;
+}
+
+export interface StatusSet {
+  id: string;
+  name: string;
+  statuses: Status[];
+}
+
 export interface TaskTemplateSet {
   id: string;
   name: string;
   items: TemplateItem[];
   baseType: 'deadline' | 'start-date';
+  statusEnabled: boolean;
+  statusSetId: string | null;
 }
 
 export interface Holiday {

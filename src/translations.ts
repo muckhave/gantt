@@ -88,7 +88,21 @@ export const translations = {
     recurrenceNone: "なし",
     repeatEvery: "間隔",
     weekUnit: "週",
-    monthUnit: "ヶ月"
+    monthUnit: "ヶ月",
+    statusManage: "ステータス管理",
+    statusSetList: "ステータスセット一覧",
+    newStatusSet: "新規ステータスセット",
+    statusSetName: "ステータスセット名",
+    addStatus: "ステータスを追加",
+    statusName: "ステータス名",
+    statusColor: "カラー",
+    useStatusManagement: "ステータス管理を使用",
+    selectStatusSet: "ステータスセットを選択...",
+    noStatusSets: "ステータスセットがありません",
+    saveStatusSet: "ステータスセットを保存",
+    status: "ステータス",
+    on: "オン",
+    off: "オフ"
   }
 };
 
