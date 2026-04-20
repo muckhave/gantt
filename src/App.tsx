@@ -565,7 +565,7 @@ const TaskRow: React.FC<{
   instanceDate?: string;
   onToggle: () => void;
   onDelete: (id: string) => void;
-  onComplete: (id: string) => void;
+  onComplete: (id: string, instanceDate?: string) => void;
   onEdit: (task: Task, originalDate?: string) => void;
   onUpdate: (id: string, data: Partial<Task>) => void;
   onViewDescription: (task: Task) => void;
@@ -583,41 +583,45 @@ const TaskRow: React.FC<{
   onUpdate,
   onViewDescription
 }) => {
+  const effectiveTask = instanceDate && task.overrides?.[instanceDate]
+    ? { ...task, ...task.overrides[instanceDate] }
+    : task;
+
   return (
-    <div 
+    <div
       className={cn(
         "group flex items-center h-[44px] border-b border-border hover:bg-white/5 transition-colors cursor-pointer",
-        task.parentId ? "" : "bg-white/2"
+        task.parentId ? "" : "bg-white/5 border-l-2 border-l-accent/60"
       )}
       onClick={() => { if (hasChildren) onToggle(); }}
     >
       <div style={{ width: `${level * 20}px` }} />
       <div className="flex items-center gap-2 px-4 flex-1 min-w-0">
-        <button 
+        <button
           onClick={(e) => { e.stopPropagation(); if (hasChildren) onToggle(); }}
           className={cn("p-1 hover:bg-white/10 rounded transition-opacity", hasChildren ? "opacity-100" : "opacity-0 invisible")}
         >
           {isExpanded ? <ChevronDown size={14} className="text-text-secondary" /> : <ChevronRight size={14} className="text-text-secondary" />}
         </button>
-        
+
         {task.statusSetId ? (
-          <StatusBadge task={task} statusSets={statusSets} onUpdate={onUpdate} />
+          <StatusBadge task={effectiveTask} statusSets={statusSets} onUpdate={onUpdate} />
         ) : (
-          <button 
-            onClick={(e) => { e.stopPropagation(); onComplete(task.id); }}
+          <button
+            onClick={(e) => { e.stopPropagation(); onComplete(task.id, instanceDate); }}
             className="hover:scale-110 transition-transform flex-shrink-0"
           >
-            {task.isCompleted ? (
+            {effectiveTask.isCompleted ? (
               <CheckCircle2 size={16} className="text-accent" />
             ) : (
               <Circle size={16} className="text-text-secondary opacity-40" />
             )}
           </button>
         )}
-        
+
         <span className={cn(
-          "truncate text-[13px] font-medium transition-opacity", 
-          task.isCompleted ? "line-through opacity-30" : "text-text-primary uppercase tracking-tight"
+          "truncate transition-opacity",
+          effectiveTask.isCompleted ? "line-through opacity-30 text-[13px] font-medium" : task.parentId ? "text-[13px] font-medium text-text-primary uppercase tracking-tight" : "text-[13px] font-bold text-accent/90 uppercase tracking-tight"
         )}>
           {task.title}
           {instanceDate && (task.recurrence.type !== 'none' || task.parentId) && (
@@ -1567,7 +1571,7 @@ export default function App() {
   const [templates, setTemplates] = useState<TaskTemplateSet[]>([]);
   const [statusSets, setStatusSets] = useState<StatusSet[]>([]);
   const [loading, setLoading] = useState(true);
-  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [isHolidayManagerOpen, setIsHolidayManagerOpen] = useState(false);
@@ -1760,7 +1764,28 @@ export default function App() {
     const endM = endOfMonth(currentMonth);
 
     const getEntries = (parentId: string | null, level: number, parentInstanceDate?: string): { task: Task; instance: any; level: number; idHash: string }[] => {
-      const filtered = tasks.filter(t => t.parentId === parentId);
+      const filtered: Task[] = tasks.filter((t: Task) => t.parentId === parentId);
+
+      // Pre-compute first instance per task to sort by actual start (then end) date
+      const sortSearchStart = parentInstanceDate ? addDays(parseISO(parentInstanceDate), -180) : addDays(startM, -90);
+      const sortSearchEnd   = parentInstanceDate ? addDays(parseISO(parentInstanceDate),  180) : addDays(endM,   90);
+      const firstInstanceOf = new Map<string, { start: Date; end: Date } | null>();
+      filtered.forEach((t: Task) => {
+        if (t.isIndefinite) { firstInstanceOf.set(t.id, null); return; }
+        const insts = calculateTaskInstances(t, sortSearchStart, sortSearchEnd, holidays, tasks);
+        firstInstanceOf.set(t.id, insts.length > 0 ? insts[0] : null);
+      });
+      filtered.sort((a: Task, b: Task) => {
+        const ia = firstInstanceOf.get(a.id);
+        const ib = firstInstanceOf.get(b.id);
+        if (!ia && !ib) return 0;
+        if (!ia) return 1;
+        if (!ib) return -1;
+        const startDiff = ia.start.getTime() - ib.start.getTime();
+        if (startDiff !== 0) return startDiff;
+        return ia.end.getTime() - ib.end.getTime();
+      });
+
       let entries: { task: Task; instance: any; level: number; idHash: string }[] = [];
 
       filtered.forEach(task => {
@@ -1768,7 +1793,7 @@ export default function App() {
         if (task.isIndefinite) {
           const idHash = `${task.id}-indefinite`;
           entries.push({ task, instance: { start: startM, end: endM, originalDate: undefined }, level, idHash });
-          if (expandedIds.has(idHash)) {
+          if (!collapsedIds.has(idHash) && tasks.some((t: Task) => t.parentId === task.id)) {
             entries = [...entries, ...getEntries(task.id, level + 1, undefined)];
           }
           return;
@@ -1859,7 +1884,7 @@ export default function App() {
             idHash
           });
 
-          if (expandedIds.has(idHash)) {
+          if (!collapsedIds.has(idHash) && tasks.some((t: Task) => t.parentId === task.id)) {
             entries = [...entries, ...getEntries(task.id, level + 1, inst.originalDate)];
           }
         });
@@ -1868,7 +1893,7 @@ export default function App() {
     };
 
     return getEntries(null, 0);
-  }, [tasks, expandedIds, currentMonth, holidays]);
+  }, [tasks, collapsedIds, currentMonth, holidays]);
 
   // Gantt Chart Calculations
   const timelineDates = useMemo(() => {
@@ -1878,10 +1903,10 @@ export default function App() {
   }, [currentMonth]);
 
   const toggleExpand = (id: string) => {
-    const next = new Set(expandedIds);
+    const next = new Set(collapsedIds);
     if (next.has(id)) next.delete(id);
     else next.add(id);
-    setExpandedIds(next);
+    setCollapsedIds(next);
   };
 
   const handleDateClick = (date: Date) => {
@@ -2070,16 +2095,6 @@ export default function App() {
     });
 
     setTasks(prev => [...prev, ...newTasksAdded]);
-    setExpandedIds(prev => {
-      const next = new Set(prev);
-      newTasksAdded.forEach(t => {
-        // Use the same idHash logic as hierarchicalTasks for initial expansion
-        // For non-recurring tasks, originalDate defaults to the baseDate
-        const hash = `${t.id}-${t.baseDate || '0'}`;
-        next.add(hash);
-      });
-      return next;
-    });
 
     setIsFormOpen(false);
     setSelectedTemplateId('');
@@ -2116,8 +2131,17 @@ export default function App() {
     setTasks(tasks.filter(t => t.id !== id && t.parentId !== id));
   };
 
-  const toggleComplete = (id: string) => {
-    setTasks(tasks.map(t => t.id === id ? { ...t, isCompleted: !t.isCompleted } : t));
+  const toggleComplete = (id: string, instanceDate?: string) => {
+    setTasks((prev: Task[]) => prev.map((t: Task) => {
+      if (t.id !== id) return t;
+      if (instanceDate && (t.recurrence.type !== 'none' || t.parentId)) {
+        const currentIsCompleted = t.overrides?.[instanceDate]?.isCompleted ?? t.isCompleted;
+        const overrides = { ...(t.overrides || {}) };
+        overrides[instanceDate] = { ...overrides[instanceDate], isCompleted: !currentIsCompleted };
+        return { ...t, overrides };
+      }
+      return { ...t, isCompleted: !t.isCompleted };
+    }));
   };
 
   useEffect(() => {
@@ -2266,7 +2290,7 @@ export default function App() {
         <header className="flex h-[60px] items-center justify-between px-8 border-b border-border bg-bg">
           <div>
             <h1 className="text-lg font-bold">2026 {t.projectFlow}</h1>
-            <p className="text-[11px] text-text-secondary">AI Studio Build Applet {t.workspace}</p>
+            <p className="text-[11px] text-text-secondary">proto type lanch</p>
           </div>
           
           <div className="flex items-center gap-6">
@@ -2334,7 +2358,7 @@ export default function App() {
                   key={idHash} 
                   task={task} 
                   level={level} 
-                  isExpanded={expandedIds.has(idHash)}
+                  isExpanded={!collapsedIds.has(idHash) && tasks.some((t: Task) => t.parentId === task.id)}
                   statusSets={statusSets}
                   hasChildren={tasks.some(t => t.parentId === task.id)}
                   instanceDate={instance.originalDate}
@@ -2551,22 +2575,24 @@ export default function App() {
                                 className={cn(
                                   "absolute h-6 rounded-md shadow-lg cursor-grab active:cursor-grabbing hover:brightness-110 active:scale-[0.98] transition-all flex items-center px-3 z-10 pointer-events-auto",
                                   task.isCompleted ? "opacity-30 grayscale" : "",
-                                  hasChildren ? "h-2 mt-2 cursor-default" : "",
+                                  hasChildren ? "h-4 cursor-default overflow-visible" : "",
                                   dragState?.taskId === task.id ? "ring-2 ring-accent opacity-70 cursor-grabbing" : ""
                                 )}
-                                style={{ 
-                                  left: `${startOffset * dayWidth}px`, 
+                                style={{
+                                  left: `${startOffset * dayWidth}px`,
                                   width: `${duration * dayWidth - 4}px`,
-                                  backgroundColor: hasChildren ? '#333' : (
-                                    task.statusSetId 
+                                  background: hasChildren
+                                    ? 'color-mix(in srgb, var(--accent) 14%, transparent)'
+                                    : (task.statusSetId
                                       ? (statusSets.find(s => s.id === task.statusSetId)?.statuses.find(st => st.id === task.statusId)?.color || task.color || '#4da6ff')
-                                      : (task.color || '#4da6ff')
-                                  ),
-                                  top: '10px',
-                                  boxShadow: hasChildren ? 'none' : `0 4px 12px ${task.color}33`,
-                                  borderLeft: hasChildren ? `2px solid #000` : 'none',
-                                  borderRight: hasChildren ? `2px solid #000` : 'none',
-                                  borderRadius: hasChildren ? '0' : '6px'
+                                      : (task.color || '#4da6ff')),
+                                  top: hasChildren ? '12px' : '10px',
+                                  borderRadius: hasChildren ? '999px' : '6px',
+                                  border: hasChildren ? '1.5px solid color-mix(in srgb, var(--accent) 55%, transparent)' : 'none',
+                                  backdropFilter: hasChildren ? 'blur(6px)' : undefined,
+                                  boxShadow: hasChildren
+                                    ? '0 0 0 1px color-mix(in srgb, var(--accent) 15%, transparent), 0 2px 14px color-mix(in srgb, var(--accent) 30%, transparent)'
+                                    : `0 4px 12px ${task.color}33`,
                                 }}
                                 title={`${task.title} (${format(instance.start, 'MMM d')} - ${format(instance.end, 'MMM d')})`}
                               >
@@ -2592,8 +2618,8 @@ export default function App() {
                                 )}
                                 {hasChildren && (
                                   <>
-                                    <div className="absolute -bottom-1 left-0 w-1 h-3 bg-black transform -translate-y-1/2" style={{ clipPath: 'polygon(0 0, 100% 0, 0 100%)' }} />
-                                    <div className="absolute -bottom-1 right-0 w-1 h-3 bg-black transform -translate-y-1/2" style={{ clipPath: 'polygon(0 0, 100% 0, 100% 100%)' }} />
+                                    <div style={{ position: 'absolute', left: '-3px', top: '50%', transform: 'translateY(-50%)', width: '6px', height: '6px', borderRadius: '50%', backgroundColor: 'var(--accent)', boxShadow: '0 0 8px color-mix(in srgb, var(--accent) 80%, transparent)' }} />
+                                    <div style={{ position: 'absolute', right: '-3px', top: '50%', transform: 'translateY(-50%)', width: '6px', height: '6px', borderRadius: '50%', backgroundColor: 'var(--accent)', boxShadow: '0 0 8px color-mix(in srgb, var(--accent) 80%, transparent)' }} />
                                   </>
                                 )}
                               </motion.div>

@@ -7,7 +7,7 @@ export const translations = {
     standardFlow: "標準フロー",
     marketingKit: "マーケティングキット",
     calendarSettings: "カレンダー設定",
-    projectFlow: "プロジェクト・フロー",
+    projectFlow: "GANTT CHART",
     workspace: "ワークスペース",
     inProgress: "進行中",
     listView: "リスト",
