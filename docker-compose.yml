@@ -1,0 +1,11 @@
+services:
+  app:
+    build: .
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./data:/app/data
+      - ./.env:/app/.env:ro
+    environment:
+      - NODE_ENV=development
+    restart: unless-stopped

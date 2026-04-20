@@ -1764,19 +1764,89 @@ export default function App() {
       let entries: { task: Task; instance: any; level: number; idHash: string }[] = [];
 
       filtered.forEach(task => {
-        const instances = calculateTaskInstances(task, startM, endM, holidays, tasks);
-        
+        // Indefinite tasks are always shown regardless of month
+        if (task.isIndefinite) {
+          const idHash = `${task.id}-indefinite`;
+          entries.push({ task, instance: { start: startM, end: endM, originalDate: undefined }, level, idHash });
+          if (expandedIds.has(idHash)) {
+            entries = [...entries, ...getEntries(task.id, level + 1, undefined)];
+          }
+          return;
+        }
+
+        // Determine search window:
+        // - For child lookups (parentInstanceDate set): search around the parent instance date
+        // - For root-level tasks: search ±90 days around the current month, to find parent instances
+        //   from adjacent months whose child tasks fall in the current month (cross-month sets)
+        const searchStart = parentInstanceDate ? addDays(parseISO(parentInstanceDate), -180) : addDays(startM, -90);
+        const searchEnd = parentInstanceDate ? addDays(parseISO(parentInstanceDate), 180) : addDays(endM, 90);
+        const allInstances = calculateTaskInstances(task, searchStart, searchEnd, holidays, tasks);
+
         // Match instances to the specific parent branch if applicable
-        const relevantInstances = parentInstanceDate 
-          ? instances.filter(inst => {
-              // For subtasks, originalDate is the parent's anchor date
-              return inst.originalDate === parentInstanceDate;
+        const relevantInstances = parentInstanceDate
+          ? allInstances.filter(inst => {
+              // Dynamic child: originalDate matches parent's instance date
+              if (inst.originalDate === parentInstanceDate) return true;
+
+              // Static child (no offsetDays saved): match by proximity.
+              // Find all parent instances in a wide range, then show this child
+              // only under the nearest parent instance to avoid duplicates.
+              if (task.offsetDays === undefined && task.parentId && inst.originalDate) {
+                const parentTask = tasks.find(t => t.id === task.parentId);
+                if (parentTask && parentTask.recurrence?.type !== 'none') {
+                  const parentInsts = calculateTaskInstances(
+                    parentTask,
+                    addDays(parseISO(inst.originalDate), -90),
+                    addDays(parseISO(inst.originalDate), 90),
+                    holidays,
+                    tasks
+                  );
+                  if (parentInsts.length > 0) {
+                    const childDate = parseISO(inst.originalDate);
+                    const nearest = parentInsts.reduce((best, pi) => {
+                      const d = Math.abs(pi.start.getTime() - childDate.getTime());
+                      const bd = Math.abs(best.start.getTime() - childDate.getTime());
+                      return d < bd ? pi : best;
+                    });
+                    return nearest.originalDate === parentInstanceDate;
+                  }
+                }
+                // Non-recurring parent: always show static child when parent is expanded
+                return true;
+              }
+              return false;
             })
-          : instances;
+          : allInstances.filter(inst => {
+              // Always include instances whose parent bar overlaps the current month
+              if (inst.start <= endM && inst.end >= startM) return true;
+
+              // For instances outside the current month (e.g., previous month's parent),
+              // include them only if at least one direct child falls in the current month.
+              const directChildren = tasks.filter(t => t.parentId === task.id);
+              if (directChildren.length === 0) return false;
+              const instDate = inst.originalDate;
+              if (!instDate) return false;
+
+              return directChildren.some(child => {
+                const childInsts = calculateTaskInstances(
+                  child,
+                  addDays(parseISO(instDate), -180),
+                  addDays(parseISO(instDate), 180),
+                  holidays,
+                  tasks
+                );
+                // Dynamic children: filter by matching originalDate
+                // Static children (no offsetDays): use their baseDate directly
+                const matching = child.offsetDays !== undefined
+                  ? childInsts.filter(ci => ci.originalDate === instDate)
+                  : childInsts;
+                return matching.some(ci => ci.start <= endM && ci.end >= startM);
+              });
+            });
 
         relevantInstances.forEach(inst => {
           const idHash = `${task.id}-${inst.originalDate || '0'}`;
-          
+
           // Apply overrides for this instance
           const mergedTask = inst.originalDate && task.overrides?.[inst.originalDate]
             ? { ...task, ...task.overrides[inst.originalDate] }
@@ -2377,8 +2447,30 @@ export default function App() {
                       let allInstances: { start: Date; end: Date }[] = [];
                       
                       children.forEach(child => {
-                        const childInstances = calculateTaskInstances(child, startOfMonthView, endOfMonthView, holidays, tasks);
-                        const relevant = parentInstDate ? childInstances.filter(ci => ci.originalDate === parentInstDate) : childInstances;
+                        // Expand search window so children whose dates fall outside the current month
+                        // (but belong to a parent instance in this month) are still found.
+                        const childSearchStart = parentInstDate ? addDays(parseISO(parentInstDate), -180) : startOfMonthView;
+                        const childSearchEnd = parentInstDate ? addDays(parseISO(parentInstDate), 180) : endOfMonthView;
+                        const childInstances = calculateTaskInstances(child, childSearchStart, childSearchEnd, holidays, tasks);
+                        const relevant = parentInstDate
+                          ? childInstances.filter(ci => {
+                              if (ci.originalDate === parentInstDate) return true;
+                              // Static child (no offsetDays): include if nearest parent instance matches
+                              if (child.offsetDays === undefined && child.parentId && ci.originalDate) {
+                                const parentTask = tasks.find(t => t.id === child.parentId);
+                                if (parentTask && parentTask.recurrence?.type !== 'none') {
+                                  const pInsts = calculateTaskInstances(parentTask, addDays(parseISO(ci.originalDate), -90), addDays(parseISO(ci.originalDate), 90), holidays, tasks);
+                                  if (pInsts.length > 0) {
+                                    const childDate = parseISO(ci.originalDate);
+                                    const nearest = pInsts.reduce((best, pi) => Math.abs(pi.start.getTime() - childDate.getTime()) < Math.abs(best.start.getTime() - childDate.getTime()) ? pi : best);
+                                    return nearest.originalDate === parentInstDate;
+                                  }
+                                }
+                                return true;
+                              }
+                              return false;
+                            })
+                          : childInstances;
                         allInstances = [...allInstances, ...relevant];
                         relevant.forEach(ri => {
                           allInstances = [...allInstances, ...getDescendantInstances(child.id, ri.originalDate)];
@@ -2405,12 +2497,12 @@ export default function App() {
                       return { start: minStart, end: maxEnd, originalDate: own.originalDate };
                     });
 
-                    const displayedInstances = visualInstances.length > 0 ? visualInstances : (
+                    const displayedInstances = (visualInstances.length > 0 ? visualInstances : (
                       descendantInstances.length > 0 ? [{
                         start: new Date(Math.min(...descendantInstances.map(d => d.start.getTime()))),
                         end: new Date(Math.max(...descendantInstances.map(d => d.end.getTime())))
                       }] : []
-                    ).filter(inst => inst.start <= endOfMonthView && inst.end >= startOfMonthView);
+                    )).filter(inst => inst.start <= endOfMonthView && inst.end >= startOfMonthView);
 
                     return (
                       <div key={idHash} className="h-[44px] flex items-center relative group pointer-events-none">
@@ -2485,7 +2577,7 @@ export default function App() {
                                   <div className="flex items-center gap-2 w-full overflow-hidden">
                                     {task.statusSetId && (
                                       <div className="flex-shrink-0" onClick={(e) => e.stopPropagation()}>
-                                        <StatusBadge task={task} statusSets={statusSets} onUpdate={handleUpdateTask} />
+                                        <StatusBadge task={task} statusSets={statusSets} onUpdate={(id, data) => handleUpdateTask(id, data, instance?.originalDate)} />
                                       </div>
                                     )}
                                     <span className="text-[11px] truncate text-black font-bold tracking-tight">

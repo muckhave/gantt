@@ -1,0 +1,4 @@
+id,title,parentId,leadTime,recurrenceType,weeklyDays,monthlyDays,isCompleted,color,createdAt,baseDate,statusId,statusSetId,offsetDays,offsetDirection,parentPoint,isIndefinite,description,baseType,overrides,exclusions,recurrenceInterval,recurrenceMonths,recurrenceHolidayAdjustment
+rjc2lo7yx,"New Template",,0,monthly,"","2",false,#475569,1776666603566,2026-05-04,,,,,,false,"",deadline,"{}","",1,"",next
+g50bf8any,"First Task",rjc2lo7yx,3,none,"","",false,#f59e0b,1776666603566,2026-05-04,,,0,before,deadline,false,"",deadline,"{}","",,"",
+tisma7zpd,"Subtask",rjc2lo7yx,3,none,"","",false,#06b6d4,1776666603566,2026-04-28,,,3,before,deadline,false,"",deadline,"{}","",,"",

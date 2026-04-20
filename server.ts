@@ -20,23 +20,39 @@ async function ensureDataDir() {
 }
 
 // CSV Conversion Helpers
+function parseJsonField(s: string): any {
+  if (!s) return undefined;
+  try { return JSON.parse(s); } catch { return undefined; }
+}
+
 function tasksToCsv(tasks: any[]): string {
-  const header = "id,title,parentId,leadTime,recurrenceType,weeklyDays,monthlyDays,isCompleted,color,createdAt,baseDate,statusId,statusSetId\n";
+  const header = "id,title,parentId,leadTime,recurrenceType,weeklyDays,monthlyDays,isCompleted,color,createdAt,baseDate,statusId,statusSetId,offsetDays,offsetDirection,parentPoint,isIndefinite,description,baseType,overrides,exclusions,recurrenceInterval,recurrenceMonths,recurrenceHolidayAdjustment\n";
   const rows = tasks.map(t => {
     return [
       t.id,
-      `"${t.title.replace(/"/g, '""')}"`,
+      `"${(t.title || '').replace(/"/g, '""')}"`,
       t.parentId || "",
-      t.leadTime,
-      t.recurrence.type,
-      `"${(t.recurrence.weeklyDays || []).join('|')}"`,
-      `"${(t.recurrence.monthlyDays || []).join('|')}"`,
-      t.isCompleted,
+      t.leadTime ?? 0,
+      t.recurrence?.type || "none",
+      `"${(t.recurrence?.weeklyDays || []).join('|')}"`,
+      `"${(t.recurrence?.monthlyDays || []).join('|')}"`,
+      t.isCompleted ?? false,
       t.color || "",
-      t.createdAt,
+      t.createdAt || Date.now(),
       t.baseDate || "",
       t.statusId || "",
-      t.statusSetId || ""
+      t.statusSetId || "",
+      t.offsetDays ?? "",
+      t.offsetDirection || "",
+      t.parentPoint || "",
+      t.isIndefinite ?? false,
+      `"${(t.description || '').replace(/"/g, '""')}"`,
+      t.baseType || "",
+      `"${JSON.stringify(t.overrides || {}).replace(/"/g, '""')}"`,
+      `"${(t.exclusions || []).join('|')}"`,
+      t.recurrence?.interval ?? "",
+      `"${(t.recurrence?.months || []).join('|')}"`,
+      t.recurrence?.holidayAdjustment || ""
     ].join(",");
   });
   return header + rows.join("\n");
@@ -51,30 +67,48 @@ function csvToTasks(csv: string): any[] {
     let current = "";
     let inQuotes = false;
     for (let i = 0; i < row.length; i++) {
-        if (row[i] === '"') inQuotes = !inQuotes;
-        else if (row[i] === ',' && !inQuotes) {
-            values.push(current);
-            current = "";
-        } else current += row[i];
+      if (row[i] === '"') {
+        if (inQuotes && row[i + 1] === '"') { current += '"'; i++; }
+        else inQuotes = !inQuotes;
+      } else if (row[i] === ',' && !inQuotes) {
+        values.push(current); current = "";
+      } else current += row[i];
     }
     values.push(current);
+
+    const overridesRaw = parseJsonField(values[19]);
+    const exclusionsRaw = values[20] ? values[20].split('|').filter(Boolean) : [];
+    const recurrenceInterval = values[21] !== undefined && values[21] !== '' ? parseInt(values[21]) : undefined;
+    const recurrenceMonths = values[22] ? values[22].split('|').filter(Boolean).map(Number) : undefined;
+    const recurrenceHolidayAdjustment = values[23] || undefined;
 
     return {
       id: values[0],
       title: values[1],
       parentId: values[2] || null,
-      leadTime: parseInt(values[3]),
+      leadTime: parseInt(values[3]) || 0,
       recurrence: {
-        type: values[4],
-        weeklyDays: values[5] ? values[5].split('|').map(Number) : [],
-        monthlyDays: values[6] ? values[6].split('|').map(v => isNaN(Number(v)) ? v : Number(v)) : []
+        type: values[4] || 'none',
+        weeklyDays: values[5] ? values[5].split('|').filter(Boolean).map(Number) : [],
+        monthlyDays: values[6] ? values[6].split('|').filter(Boolean).map((v: string) => isNaN(Number(v)) ? v : Number(v)) : [],
+        ...(recurrenceInterval !== undefined && { interval: recurrenceInterval }),
+        ...(recurrenceMonths && recurrenceMonths.length > 0 && { months: recurrenceMonths }),
+        ...(recurrenceHolidayAdjustment && { holidayAdjustment: recurrenceHolidayAdjustment })
       },
       isCompleted: values[7] === 'true',
-      color: values[8],
-      createdAt: parseInt(values[9]),
+      color: values[8] || undefined,
+      createdAt: parseInt(values[9]) || Date.now(),
       baseDate: values[10] || undefined,
       statusId: values[11] || undefined,
-      statusSetId: values[12] || undefined
+      statusSetId: values[12] || undefined,
+      offsetDays: values[13] !== undefined && values[13] !== '' ? parseInt(values[13]) : undefined,
+      offsetDirection: values[14] || undefined,
+      parentPoint: values[15] || undefined,
+      isIndefinite: values[16] === 'true',
+      description: values[17] || undefined,
+      baseType: values[18] || undefined,
+      overrides: overridesRaw && Object.keys(overridesRaw).length > 0 ? overridesRaw : undefined,
+      exclusions: exclusionsRaw.length > 0 ? exclusionsRaw : undefined
     };
   });
 }
@@ -100,14 +134,15 @@ function csvToHolidays(csv: string): any[] {
 }
 
 function templatesToCsv(templates: any[]): string {
-  const header = "id,name,items,statusEnabled,statusSetId\n";
+  const header = "id,name,items,statusEnabled,statusSetId,baseType\n";
   const rows = templates.map(t => {
     return [
       t.id,
-      `"${t.name.replace(/"/g, '""')}"`,
-      `"${JSON.stringify(t.items).replace(/"/g, '""')}"`,
-      t.statusEnabled,
-      t.statusSetId || ""
+      `"${(t.name || '').replace(/"/g, '""')}"`,
+      `"${JSON.stringify(t.items || []).replace(/"/g, '""')}"`,
+      t.statusEnabled ?? false,
+      t.statusSetId || "",
+      t.baseType || "deadline"
     ].join(",");
   });
   return header + rows.join("\n");
@@ -122,17 +157,12 @@ function csvToTemplates(csv: string): any[] {
     let current = "";
     let inQuotes = false;
     for (let i = 0; i < row.length; i++) {
-        if (row[i] === '"') {
-            if (inQuotes && row[i+1] === '"') {
-                current += '"';
-                i++;
-            } else {
-                inQuotes = !inQuotes;
-            }
-        } else if (row[i] === ',' && !inQuotes) {
-            values.push(current);
-            current = "";
-        } else current += row[i];
+      if (row[i] === '"') {
+        if (inQuotes && row[i + 1] === '"') { current += '"'; i++; }
+        else inQuotes = !inQuotes;
+      } else if (row[i] === ',' && !inQuotes) {
+        values.push(current); current = "";
+      } else current += row[i];
     }
     values.push(current);
 
@@ -141,7 +171,8 @@ function csvToTemplates(csv: string): any[] {
       name: values[1],
       items: JSON.parse(values[2] || "[]"),
       statusEnabled: values[3] === 'true',
-      statusSetId: values[4] || null
+      statusSetId: values[4] || null,
+      baseType: values[5] || "deadline"
     };
   });
 }
