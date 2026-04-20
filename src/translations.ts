@@ -102,7 +102,24 @@ export const translations = {
     saveStatusSet: "ステータスセットを保存",
     status: "ステータス",
     on: "オン",
-    off: "オフ"
+    off: "オフ",
+    confirmChange: "期間を変更しますか？",
+    currentPeriod: "現在の期間",
+    newPeriod: "変更後の期間",
+    applyChange: "変更を適用",
+    cancelChange: "破棄",
+    editRecurring: "繰り返し全体を編集",
+    editIndividual: "この予定のみを編集",
+    selectEditMode: "編集モードの選択",
+    editModeDescription: "このタスクは繰り返し設定されています。編集の範囲を選択してください。",
+    cancel: "キャンセル",
+    today: "今日",
+    indefinite: "無期限",
+    indefiniteTask: "無期限タスク",
+    description: "説明",
+    preview: "プレビュー",
+    edit: "編集",
+    noDescription: "説明はありません"
   }
 };
 

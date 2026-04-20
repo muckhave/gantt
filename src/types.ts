@@ -29,6 +29,10 @@ export interface Task {
   parentPoint?: 'start' | 'deadline';
   statusId?: string; // Reference to Status.id
   statusSetId?: string; // Reference to StatusSet.id
+  exclusions?: string[]; // ISO dates (YYYY-MM-DD) of instances to hide
+  overrides?: { [key: string]: Partial<Task> }; // Overrides for specific instances (key: original instance date YYYY-MM-DD)
+  isIndefinite?: boolean;
+  description?: string;
 }
 
 export interface TemplateItem {
@@ -40,6 +44,7 @@ export interface TemplateItem {
   parentPoint: 'start' | 'deadline';
   targetPoint: 'start' | 'deadline';
   leadTime: number; // calendar days
+  description?: string;
 }
 
 export interface Status {

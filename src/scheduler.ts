@@ -37,19 +37,31 @@ export const calculateTaskInstances = (
   viewEnd: Date, 
   holidays: Holiday[],
   allTasks: Task[] = []
-): { start: Date; end: Date }[] => {
-  const instances: { start: Date; end: Date }[] = [];
+): { start: Date; end: Date; originalDate?: string }[] => {
+  const instances: { start: Date; end: Date; originalDate?: string }[] = [];
   const { recurrence, leadTime, baseType } = task;
+
+  // Indefinite tasks do not have specific dates/instances on the Gantt chart
+  if (task.isIndefinite) return [];
 
   // If it's a subtask with relative scheduling info, depend on parent's instances
   if (task.parentId && task.offsetDays !== undefined && recurrence.type === 'none') {
     const parent = allTasks.find(t => t.id === task.parentId);
     if (parent) {
-      const parentInstances = calculateTaskInstances(parent, viewStart, viewEnd, holidays, allTasks);
+      // Search for parent instances in a wider window (+/- 1 year) 
+      // to ensure subtasks that fall into the current search window are not missed.
+      const parentSearchStart = addDays(viewStart, -365);
+      const parentSearchEnd = addDays(viewEnd, 365);
+      const parentInstances = calculateTaskInstances(parent, parentSearchStart, parentSearchEnd, holidays, allTasks);
       parentInstances.forEach(pInst => {
         const referenceDate = task.parentPoint === 'start' ? pInst.start : pInst.end;
         const offset = task.offsetDirection === 'before' ? -task.offsetDays! : task.offsetDays!;
         
+        const instOriginalDate = pInst.originalDate || '';
+        const override = task.overrides?.[instOriginalDate];
+        const mergedForInst = override ? { ...task, ...override } : task;
+        
+        const currentLeadTime = mergedForInst.leadTime;
         const targetDate = offset >= 0 
           ? addBusinessDays(referenceDate, offset, holidays)
           : subBusinessDays(referenceDate, Math.abs(offset), holidays);
@@ -59,14 +71,14 @@ export const calculateTaskInstances = (
 
         if (task.baseType === 'deadline') {
           end = targetDate;
-          start = calculateStartDate(end, leadTime, holidays);
+          start = calculateStartDate(end, currentLeadTime, holidays);
         } else {
           start = targetDate;
-          end = calculateEndDate(start, leadTime, holidays);
+          end = calculateEndDate(start, currentLeadTime, holidays);
         }
         
         if (start <= viewEnd && end >= viewStart) {
-          instances.push({ start, end });
+          instances.push({ start, end, originalDate: instOriginalDate });
         }
       });
       return instances;
@@ -97,7 +109,7 @@ export const calculateTaskInstances = (
     
     // Check overlap
     if (start <= viewEnd && end >= viewStart) {
-      instances.push({ start, end });
+      instances.push({ start, end, originalDate: task.baseDate });
     }
     return instances;
   }
@@ -209,18 +221,29 @@ export const calculateTaskInstances = (
     }
 
     if (matched) {
+      const originalDate = format(day, 'yyyy-MM-dd');
+      
+      // Skip if explicitly excluded
+      if (task.exclusions?.includes(originalDate)) return;
+
+      const override = task.overrides?.[originalDate];
+      const mergedTask = override ? { ...task, ...override } : task;
+      
       let start: Date;
       let end: Date;
 
-      if (baseType === 'start-date') {
-        start = day;
-        end = calculateEndDate(start, leadTime, holidays);
+      // Use overridden baseDate if present, otherwise use the matching day
+      const anchor = (override?.baseDate) ? parseISO(override.baseDate) : day;
+
+      if (mergedTask.baseType === 'start-date') {
+        start = anchor;
+        end = calculateEndDate(start, mergedTask.leadTime, holidays);
       } else {
-        end = day;
-        start = calculateStartDate(end, leadTime, holidays);
+        end = anchor;
+        start = calculateStartDate(end, mergedTask.leadTime, holidays);
       }
       
-      instances.push({ start, end });
+      instances.push({ start, end, originalDate });
     }
   });
 

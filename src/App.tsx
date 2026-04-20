@@ -32,8 +32,13 @@ import {
   GripVertical,
   X,
   HelpCircle,
-  Layers
+  Layers,
+  Infinity as InfinityIcon,
+  FileText,
+  Eye,
+  Edit3
 } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
 import { motion, AnimatePresence } from 'motion/react';
 import { Sun, Moon } from 'lucide-react';
 import { 
@@ -58,6 +63,117 @@ import { calculateTaskInstances } from './scheduler';
 import { translations } from './translations';
 
 const t = translations.ja;
+
+// --- Types ---
+
+interface DragState {
+  taskId: string;
+  originalDate?: string;
+  type: 'move' | 'resize';
+  startX: number;
+  initialBaseDate: string;
+  initialLeadTime: number;
+}
+
+const ConfirmDialog: React.FC<{
+  onConfirm: () => void;
+  onCancel: () => void;
+  title: string;
+  pendingChange: { id: string; baseDate: string; leadTime: number };
+  tasks: Task[];
+}> = ({ onConfirm, onCancel, title, pendingChange, tasks }) => {
+  const task = tasks.find(t => t.id === pendingChange.id);
+  if (!task) return null;
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 backdrop-blur-sm bg-black/40">
+      <motion.div 
+        initial={{ opacity: 0, scale: 0.95, y: 10 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        className="w-full max-w-sm bg-surface border border-border rounded-3xl shadow-2xl p-8"
+      >
+        <div className="w-12 h-12 bg-accent/10 rounded-full flex items-center justify-center mx-auto mb-6">
+          <Clock className="text-accent" size={24} />
+        </div>
+        <h3 className="text-lg font-bold text-text-primary mb-6 text-center">{title}</h3>
+        
+        <div className="space-y-4 mb-8">
+          <div className="p-4 bg-bg rounded-xl border border-border">
+            <div className="text-[10px] font-bold uppercase text-text-secondary mb-2 tracking-widest">{t.currentPeriod}</div>
+            <div className="text-sm font-medium text-text-primary">
+              {task.baseDate ? format(parseISO(task.baseDate), 'yyyy年MM月dd日') : '---'}
+              <span className="mx-2 text-text-secondary">→</span>
+              {task.leadTime}日
+            </div>
+          </div>
+          <div className="p-4 bg-accent-soft rounded-xl border border-accent/20">
+            <div className="text-[10px] font-bold uppercase text-accent mb-2 tracking-widest">{t.newPeriod}</div>
+            <div className="text-sm font-bold text-text-primary">
+              {format(parseISO(pendingChange.baseDate), 'yyyy年MM月dd日')}
+              <span className="mx-2 text-text-secondary">→</span>
+              {pendingChange.leadTime}日
+            </div>
+          </div>
+        </div>
+
+        <div className="flex gap-4">
+          <button 
+            onClick={onConfirm}
+            className="flex-1 bg-accent text-text-on-accent py-3 rounded-xl text-[11px] font-bold uppercase shadow-lg shadow-accent/20 transform active:scale-95 transition-all"
+          >
+            {t.applyChange}
+          </button>
+          <button 
+            onClick={onCancel}
+            className="flex-1 bg-bg border border-border text-text-secondary py-3 rounded-xl text-[11px] font-bold uppercase hover:bg-white/5 transition-all"
+          >
+            {t.cancelChange}
+          </button>
+        </div>
+      </motion.div>
+    </div>
+  );
+};
+
+const EditModeDialog: React.FC<{
+  onSelect: (mode: 'individual' | 'recurring') => void;
+  onCancel: () => void;
+}> = ({ onSelect, onCancel }) => (
+  <div className="fixed inset-0 z-[110] flex items-center justify-center p-6 backdrop-blur-sm bg-black/40">
+    <motion.div 
+      initial={{ opacity: 0, scale: 0.95, y: 10 }}
+      animate={{ opacity: 1, scale: 1, y: 0 }}
+      className="w-full max-w-sm bg-surface border border-border rounded-3xl shadow-2xl p-8"
+    >
+      <div className="w-12 h-12 bg-accent/10 rounded-full flex items-center justify-center mx-auto mb-6">
+        <Settings className="text-accent" size={24} />
+      </div>
+      <h3 className="text-lg font-bold text-text-primary mb-2 text-center">{t.selectEditMode}</h3>
+      <p className="text-xs text-text-secondary text-center mb-8">{t.editModeDescription}</p>
+      
+      <div className="flex flex-col gap-3">
+        <button 
+          onClick={() => onSelect('individual')}
+          className="w-full bg-accent text-text-on-accent py-4 rounded-xl text-[11px] font-bold uppercase shadow-lg shadow-accent/20 transform active:scale-95 transition-all text-center"
+        >
+          {t.editIndividual}
+        </button>
+        <button 
+          onClick={() => onSelect('recurring')}
+          className="w-full bg-bg border border-border text-text-primary py-4 rounded-xl text-[11px] font-bold uppercase hover:bg-white/5 transition-all active:scale-95 text-center"
+        >
+          {t.editRecurring}
+        </button>
+        <button 
+          onClick={onCancel}
+          className="w-full mt-4 text-[10px] uppercase font-bold text-text-secondary tracking-widest hover:text-text-primary transition-colors text-center"
+        >
+          {t.cancel}
+        </button>
+      </div>
+    </motion.div>
+  </div>
+);
 
 const DatePicker: React.FC<{
   value: string;
@@ -445,21 +561,27 @@ const TaskRow: React.FC<{
   level: number; 
   isExpanded: boolean; 
   statusSets: StatusSet[];
+  hasChildren: boolean;
+  instanceDate?: string;
   onToggle: () => void;
   onDelete: (id: string) => void;
   onComplete: (id: string) => void;
-  onEdit: (task: Task) => void;
+  onEdit: (task: Task, originalDate?: string) => void;
   onUpdate: (id: string, data: Partial<Task>) => void;
+  onViewDescription: (task: Task) => void;
 }> = ({ 
   task, 
   level, 
   isExpanded, 
   statusSets,
+  hasChildren,
+  instanceDate,
   onToggle, 
   onDelete, 
   onComplete,
   onEdit,
-  onUpdate
+  onUpdate,
+  onViewDescription
 }) => {
   return (
     <div 
@@ -467,13 +589,13 @@ const TaskRow: React.FC<{
         "group flex items-center h-[44px] border-b border-border hover:bg-white/5 transition-colors cursor-pointer",
         task.parentId ? "" : "bg-white/2"
       )}
-      onClick={() => onEdit(task)}
+      onClick={() => { if (hasChildren) onToggle(); }}
     >
       <div style={{ width: `${level * 20}px` }} />
       <div className="flex items-center gap-2 px-4 flex-1 min-w-0">
         <button 
-          onClick={(e) => { e.stopPropagation(); onToggle(); }}
-          className={cn("p-1 hover:bg-white/10 rounded transition-opacity", level === 0 ? "opacity-100" : "opacity-0 invisible")}
+          onClick={(e) => { e.stopPropagation(); if (hasChildren) onToggle(); }}
+          className={cn("p-1 hover:bg-white/10 rounded transition-opacity", hasChildren ? "opacity-100" : "opacity-0 invisible")}
         >
           {isExpanded ? <ChevronDown size={14} className="text-text-secondary" /> : <ChevronRight size={14} className="text-text-secondary" />}
         </button>
@@ -495,18 +617,52 @@ const TaskRow: React.FC<{
         
         <span className={cn(
           "truncate text-[13px] font-medium transition-opacity", 
-          task.isCompleted ? "line-through opacity-30" : "text-text-primary"
+          task.isCompleted ? "line-through opacity-30" : "text-text-primary uppercase tracking-tight"
         )}>
           {task.title}
+          {instanceDate && (task.recurrence.type !== 'none' || task.parentId) && (
+            <span className="text-[10px] text-accent font-bold ml-2 opacity-80 decoration-none inline-block">
+              [{format(parseISO(instanceDate), 'MM/dd')}]
+            </span>
+          )}
         </span>
+        
+        {task.description && (
+          <div className="relative group/desc">
+            <button
+              onClick={(e) => { e.stopPropagation(); onViewDescription(task); }}
+              className="p-1 text-accent opacity-60 hover:opacity-100 transition-opacity"
+            >
+              <FileText size={12} />
+            </button>
+            <div className="absolute left-0 top-full mt-2 w-64 p-4 bg-surface border border-border rounded-xl shadow-2xl opacity-0 invisible group-hover/desc:opacity-100 group-hover/desc:visible transition-all z-[100] pointer-events-none">
+              <div className="markdown-body max-h-48 overflow-y-auto pr-2">
+                <ReactMarkdown>{task.description}</ReactMarkdown>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
       <div className="px-4 flex items-center gap-3 opacity-0 group-hover:opacity-100 transition-opacity">
         <div className={cn(
           "text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-tight",
-          task.recurrence.type !== 'none' ? "border border-accent/50 text-accent" : "bg-border text-text-secondary"
+          task.recurrence.type !== 'none' ? "border border-accent/50 text-accent" : (task.isIndefinite ? "bg-accent/20 text-accent border border-accent/30" : "bg-border text-text-secondary")
         )}>
-          {task.recurrence.type !== 'none' ? t.recurring : `${task.leadTime}d`}
+          {task.recurrence.type !== 'none' ? t.recurring : (task.isIndefinite ? t.indefinite : `${task.leadTime}d`)}
         </div>
+        <button 
+          onClick={(e) => { 
+            e.stopPropagation(); 
+            if (task.recurrence.type !== 'none') {
+              onEdit(task, task.baseDate);
+            } else {
+              onEdit(task); 
+            }
+          }}
+          className="p-1 text-text-secondary hover:text-accent"
+        >
+          <Settings size={14} />
+        </button>
         <button 
           onClick={(e) => { e.stopPropagation(); onDelete(task.id); }}
           className="p-1 text-text-secondary hover:text-red-400"
@@ -937,7 +1093,14 @@ const TemplateManager: React.FC<{
   }, [editingTemplate, onClose]);
 
   const handleAddTemplate = () => {
-    setEditingTemplate({ id: generateId(), name: 'New Template', items: [], baseType: 'deadline' });
+    setEditingTemplate({ 
+      id: generateId(), 
+      name: 'New Template', 
+      items: [], 
+      baseType: 'deadline',
+      statusEnabled: false,
+      statusSetId: null
+    });
   };
 
   const handleSaveEditing = () => {
@@ -1014,9 +1177,9 @@ const TemplateManager: React.FC<{
                         onClick={() => {
                           const items = editingTemplate.items.map(item => ({
                             ...item,
-                            parentPoint: type === 'deadline' ? 'deadline' : ('start' as const),
-                            offsetDirection: type === 'deadline' ? 'before' : ('after' as const),
-                            targetPoint: type === 'deadline' ? 'deadline' : ('start' as const)
+                            parentPoint: (type === 'deadline' ? 'deadline' : 'start') as 'deadline' | 'start',
+                            offsetDirection: (type === 'deadline' ? 'before' : 'after') as 'before' | 'after',
+                            targetPoint: (type === 'deadline' ? 'deadline' : 'start') as 'deadline' | 'start'
                           }));
                           setEditingTemplate({...editingTemplate, baseType: type, items});
                         }}
@@ -1200,6 +1363,20 @@ const TemplateManager: React.FC<{
                               setEditingTemplate({...editingTemplate, items});
                             }}
                             className="flex-1 bg-bg border border-border rounded-lg px-4 py-2 text-xs text-text-primary outline-none focus:border-accent transition-colors"
+                          />
+                        </div>
+
+                        <div className="flex flex-col gap-2">
+                          <label className="text-[10px] font-bold uppercase text-text-secondary tracking-widest">{t.description}</label>
+                          <textarea 
+                            value={item.description || ''}
+                            onChange={e => {
+                              const items = [...editingTemplate.items];
+                              items[idx] = {...item, description: e.target.value};
+                              setEditingTemplate({...editingTemplate, items});
+                            }}
+                            className="w-full bg-bg border border-border rounded-lg px-4 py-2 text-[11px] text-text-primary focus:border-accent outline-none transition-colors min-h-[60px] resize-y"
+                            placeholder="Markdown manual..."
                           />
                         </div>
 
@@ -1398,6 +1575,8 @@ export default function App() {
   const [holidayDate, setHolidayDate] = useState<string>('');
   const [isTemplateManagerOpen, setIsTemplateManagerOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
+  const [editingInstanceDate, setEditingInstanceDate] = useState<string | null>(null);
+  const [editChoiceTarget, setEditChoiceTarget] = useState<{ task: Task; originalDate?: string } | null>(null);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('');
   const [templateDeadline, setTemplateDeadline] = useState<string>('');
   const [templateRecType, setTemplateRecType] = useState<RecurrenceType>('none');
@@ -1411,6 +1590,10 @@ export default function App() {
   const [theme, setTheme] = useState<'dark' | 'light'>(() => {
     return (localStorage.getItem('ganttflow_theme') as 'dark' | 'light') || 'dark';
   });
+  
+  const [dragState, setDragState] = useState<DragState | null>(null);
+  const [mousePos, setMousePos] = useState(0);
+  const [pendingChange, setPendingChange] = useState<{ id: string; baseDate: string; leadTime: number; originalDate?: string } | null>(null);
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
@@ -1426,6 +1609,11 @@ export default function App() {
   const [holidayAdjustment, setHolidayAdjustment] = useState<HolidayAdjustment>('next');
   const [manualBaseType, setManualBaseType] = useState<'start-date' | 'deadline'>('start-date');
   const [manualBaseDate, setManualBaseDate] = useState<string>('');
+  const [formParentId, setFormParentId] = useState<string | null>(null);
+  const [isIndefinite, setIsIndefinite] = useState(false);
+  const [description, setDescription] = useState('');
+  const [isPreviewMode, setIsPreviewMode] = useState(false);
+  const [viewingDescriptionTask, setViewingDescriptionTask] = useState<Task | null>(null);
 
   useEffect(() => {
     if (editingTask) {
@@ -1437,6 +1625,10 @@ export default function App() {
       setHolidayAdjustment(editingTask.recurrence.holidayAdjustment || 'next');
       setManualBaseType(editingTask.baseType || 'start-date');
       setManualBaseDate(editingTask.baseDate || '');
+      setFormParentId(editingTask.parentId);
+      setIsIndefinite(editingTask.isIndefinite || false);
+      setDescription(editingTask.description || '');
+      setIsPreviewMode(false);
     } else {
       setRecType('none');
       setWeeklyDays([]);
@@ -1446,6 +1638,10 @@ export default function App() {
       setHolidayAdjustment('next');
       setManualBaseType('start-date');
       setManualBaseDate('');
+      setFormParentId(null);
+      setIsIndefinite(false);
+      setDescription('');
+      setIsPreviewMode(false);
     }
   }, [editingTask, isFormOpen]);
 
@@ -1457,12 +1653,14 @@ export default function App() {
           setEditingTask(null);
         } else if (isHolidayManagerOpen) {
           setIsHolidayManagerOpen(false);
+        } else if (viewingDescriptionTask) {
+          setViewingDescriptionTask(null);
         }
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isFormOpen, isHolidayManagerOpen]);
+  }, [isFormOpen, isHolidayManagerOpen, viewingDescriptionTask]);
 
   // Persistence
   useEffect(() => {
@@ -1557,24 +1755,50 @@ export default function App() {
     if (!loading) saveStatusSets(statusSets);
   }, [statusSets, loading]);
 
-  // Hierarchy Logic
   const hierarchicalTasks = useMemo(() => {
-    const rootTasks = tasks.filter(t => !t.parentId);
-    const result: { task: Task; level: number }[] = [];
+    const startM = startOfMonth(currentMonth);
+    const endM = endOfMonth(currentMonth);
 
-    const traverse = (parentId: string | null, level: number) => {
-      const children = tasks.filter(t => t.parentId === parentId);
-      children.forEach(t => {
-        result.push({ task: t, level });
-        if (expandedIds.has(t.id)) {
-          traverse(t.id, level + 1);
-        }
+    const getEntries = (parentId: string | null, level: number, parentInstanceDate?: string): { task: Task; instance: any; level: number; idHash: string }[] => {
+      const filtered = tasks.filter(t => t.parentId === parentId);
+      let entries: { task: Task; instance: any; level: number; idHash: string }[] = [];
+
+      filtered.forEach(task => {
+        const instances = calculateTaskInstances(task, startM, endM, holidays, tasks);
+        
+        // Match instances to the specific parent branch if applicable
+        const relevantInstances = parentInstanceDate 
+          ? instances.filter(inst => {
+              // For subtasks, originalDate is the parent's anchor date
+              return inst.originalDate === parentInstanceDate;
+            })
+          : instances;
+
+        relevantInstances.forEach(inst => {
+          const idHash = `${task.id}-${inst.originalDate || '0'}`;
+          
+          // Apply overrides for this instance
+          const mergedTask = inst.originalDate && task.overrides?.[inst.originalDate]
+            ? { ...task, ...task.overrides[inst.originalDate] }
+            : task;
+
+          entries.push({
+            task: mergedTask,
+            instance: inst,
+            level,
+            idHash
+          });
+
+          if (expandedIds.has(idHash)) {
+            entries = [...entries, ...getEntries(task.id, level + 1, inst.originalDate)];
+          }
+        });
       });
+      return entries;
     };
 
-    traverse(null, 0);
-    return result;
-  }, [tasks, expandedIds]);
+    return getEntries(null, 0);
+  }, [tasks, expandedIds, currentMonth, holidays]);
 
   // Gantt Chart Calculations
   const timelineDates = useMemo(() => {
@@ -1598,6 +1822,22 @@ export default function App() {
     setFormMode('normal');
     setEditingTask(null);
     setIsFormOpen(true);
+  };
+
+  const handleGoToToday = () => {
+    const today = new Date();
+    setCurrentMonth(today);
+    
+    // Smooth scroll to today
+    setTimeout(() => {
+      if (ganttRef.current) {
+        const startOfView = startOfMonth(today);
+        const diff = differenceInDays(startOfDay(today), startOfView);
+        const scrollPos = diff * dayWidth - (ganttRef.current.clientWidth / 2) + (dayWidth / 2);
+        // Important: target the SECTION with overflow-x-auto, not the ganttRef which is overflow-y
+        ganttRef.current.closest('section')?.scrollTo({ left: scrollPos, behavior: 'smooth' });
+      }
+    }, 100);
   };
 
   const handleCreateTask = (data: Partial<Task>) => {
@@ -1726,6 +1966,7 @@ export default function App() {
             offsetDays: item.offsetDays,
             offsetDirection: item.offsetDirection,
             parentPoint: item.parentPoint,
+            description: item.description,
             statusId: initialStatusId,
             statusSetId: template.statusEnabled ? template.statusSetId : undefined
           });
@@ -1753,14 +1994,20 @@ export default function App() {
         baseType: item.targetPoint === 'start' ? 'start-date' : 'deadline',
         offsetDays: item.offsetDays,
         offsetDirection: item.offsetDirection,
-        parentPoint: item.parentPoint
+        parentPoint: item.parentPoint,
+        description: item.description
       });
     });
 
     setTasks(prev => [...prev, ...newTasksAdded]);
     setExpandedIds(prev => {
       const next = new Set(prev);
-      newTasksAdded.forEach(t => next.add(t.id));
+      newTasksAdded.forEach(t => {
+        // Use the same idHash logic as hierarchicalTasks for initial expansion
+        // For non-recurring tasks, originalDate defaults to the baseDate
+        const hash = `${t.id}-${t.baseDate || '0'}`;
+        next.add(hash);
+      });
       return next;
     });
 
@@ -1775,9 +2022,24 @@ export default function App() {
     setTemplateHolidayAdjustment('next');
   };
 
-  const handleUpdateTask = (id: string, data: Partial<Task>) => {
-    setTasks(tasks.map(t => t.id === id ? { ...t, ...data } : t));
+  const handleUpdateTask = (id: string, data: Partial<Task>, originalDate?: string) => {
+    setTasks(prev => prev.map(t => {
+      if (t.id !== id) return t;
+
+      const targetDate = originalDate || editingInstanceDate;
+
+      if (targetDate && (t.recurrence.type !== 'none' || t.parentId)) {
+        const overrides = { ...(t.overrides || {}) };
+        overrides[targetDate] = {
+          ...overrides[targetDate],
+          ...data,
+        };
+        return { ...t, overrides };
+      }
+      return { ...t, ...data };
+    }));
     setEditingTask(null);
+    setEditingInstanceDate(null);
   };
 
   const deleteTask = (id: string) => {
@@ -1786,6 +2048,78 @@ export default function App() {
 
   const toggleComplete = (id: string) => {
     setTasks(tasks.map(t => t.id === id ? { ...t, isCompleted: !t.isCompleted } : t));
+  };
+
+  useEffect(() => {
+    if (!dragState) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      setMousePos(e.clientX);
+    };
+
+    const handleMouseUp = (e: MouseEvent) => {
+      const diffX = e.clientX - dragState.startX;
+      const daysDiff = Math.round(diffX / dayWidth);
+      
+      if (daysDiff === 0) {
+        setDragState(null);
+        return;
+      }
+
+      const task = tasks.find(t => t.id === dragState.taskId);
+      if (!task) {
+        setDragState(null);
+        return;
+      }
+
+      let newBaseDate = task.baseDate || '';
+      let newLeadTime = task.leadTime;
+
+      if (dragState.type === 'move') {
+        const currentStart = parseISO(dragState.initialBaseDate);
+        const nextStart = daysDiff >= 0 
+          ? addBusinessDays(currentStart, daysDiff, holidays)
+          : subBusinessDays(currentStart, Math.abs(daysDiff), holidays);
+        newBaseDate = format(nextStart, 'yyyy-MM-dd');
+      } else if (dragState.type === 'resize') {
+        newLeadTime = Math.max(1, dragState.initialLeadTime + daysDiff);
+      }
+
+      setPendingChange({ 
+        id: task.id, 
+        baseDate: newBaseDate, 
+        leadTime: newLeadTime,
+        originalDate: dragState.originalDate 
+      });
+      setDragState(null);
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [dragState, holidays, tasks]);
+
+  const handleConfirmChange = () => {
+    if (!pendingChange) return;
+    setTasks(tasks.map(t => {
+      if (t.id !== pendingChange.id) return t;
+
+      if (pendingChange.originalDate) {
+        const overrides = { ...(t.overrides || {}) };
+        overrides[pendingChange.originalDate] = {
+          ...overrides[pendingChange.originalDate],
+          baseDate: pendingChange.baseDate,
+          leadTime: pendingChange.leadTime
+        };
+        return { ...t, overrides };
+      }
+      
+      return { ...t, baseDate: pendingChange.baseDate, leadTime: pendingChange.leadTime };
+    }));
+    setPendingChange(null);
   };
 
   const listRef = useRef<HTMLDivElement>(null);
@@ -1811,7 +2145,7 @@ export default function App() {
   }
 
   return (
-    <div className="flex h-screen bg-bg text-text-primary font-sans selection:bg-accent selection:text-black">
+    <div className={cn("flex h-screen bg-bg text-text-primary font-sans selection:bg-accent selection:text-black", dragState && "unselectable")}>
       {/* Real Sidebar as requested in design HTML */}
       <aside className="w-60 bg-sidebar border-r border-border flex flex-col pt-5">
         <div className="px-5 pb-8 font-bold text-lg tracking-widest text-accent flex items-center justify-between">
@@ -1911,6 +2245,13 @@ export default function App() {
                 >
                   <ChevronRight size={14} />
                 </button>
+                <div className="mx-3 w-[1px] h-3 bg-border/50" />
+                <button 
+                  onClick={handleGoToToday}
+                  className="px-3 py-1 bg-accent/10 border border-accent/20 text-[10px] font-black uppercase tracking-tighter text-accent hover:bg-accent hover:text-text-on-accent rounded-md transition-all active:scale-95"
+                >
+                  {t.today}
+                </button>
               </div>
             </div>
             <div 
@@ -1918,18 +2259,29 @@ export default function App() {
               onScroll={handleScroll}
               className="flex-1 overflow-y-auto scrollbar-hide"
             >
-              {hierarchicalTasks.map(({ task, level }: { task: Task; level: number }) => (
+              {hierarchicalTasks.map(({ task, instance, level, idHash }) => (
                 <TaskRow 
-                  key={task.id} 
+                  key={idHash} 
                   task={task} 
                   level={level} 
-                  isExpanded={expandedIds.has(task.id)}
+                  isExpanded={expandedIds.has(idHash)}
                   statusSets={statusSets}
-                  onToggle={() => toggleExpand(task.id)}
+                  hasChildren={tasks.some(t => t.parentId === task.id)}
+                  instanceDate={instance.originalDate}
+                  onToggle={() => toggleExpand(idHash)}
                   onDelete={deleteTask}
                   onComplete={toggleComplete}
-                  onEdit={(t: Task) => { setEditingTask(t); setIsFormOpen(true); }}
-                  onUpdate={handleUpdateTask}
+                  onEdit={(t: Task, originalDate?: string) => { 
+                    if (t.recurrence.type !== 'none') {
+                      setEditChoiceTarget({ task: t, originalDate: originalDate || instance.originalDate });
+                    } else {
+                      setEditingTask(t); 
+                      setEditingInstanceDate(instance.originalDate || null);
+                      setIsFormOpen(true); 
+                    }
+                  }}
+                  onUpdate={(id, data) => handleUpdateTask(id, data, instance.originalDate)}
+                  onViewDescription={setViewingDescriptionTask}
                 />
               ))}
               {tasks.length === 0 && (
@@ -1965,19 +2317,20 @@ export default function App() {
                         className={cn(
                           "flex-shrink-0 flex flex-col items-center justify-center border-r border-border/50 transition-colors cursor-pointer hover:bg-accent/10",
                           isHoli && "bg-holiday/30",
-                          isWe && "bg-weekend/50"
+                          isWe && "bg-weekend/50",
+                          isToday && "bg-accent/10 ring-1 ring-inset ring-accent/30"
                         )}
                         style={{ width: `${dayWidth}px` }}
                       >
                         <span className={cn(
                           "text-[9px] font-bold uppercase",
-                          isHoli ? "text-red-400" : "text-text-secondary"
+                          isToday ? "text-accent" : (isHoli ? "text-red-400" : "text-text-secondary")
                         )}>
                           {dayNames[date.getDay()]}
                         </span>
                         <span className={cn(
                           "text-[10px] font-bold",
-                          isToday ? "text-accent border-b border-accent" : "text-text-secondary"
+                          isToday ? "text-accent border-b-2 border-accent" : "text-text-secondary"
                         )}>
                           {format(date, 'd')}
                         </span>
@@ -2003,7 +2356,9 @@ export default function App() {
                       className={cn(
                         "flex-shrink-0 border-r border-border/30 transition-colors cursor-pointer hover:bg-accent/5",
                         isHoliday(date, holidays) && "bg-holiday/10",
-                        isWeekend(date) && "bg-weekend/20"
+                        isWeekend(date) && "bg-weekend/20",
+                        isSameDay(date, new Date()) && "bg-accent/5 ring-1 ring-inset ring-accent/20",
+                        date < startOfDay(new Date()) && "bg-black/10"
                       )}
                       style={{ width: `${dayWidth}px` }}
                     />
@@ -2012,54 +2367,45 @@ export default function App() {
 
                 {/* Task Bars */}
                 <div className="relative z-0">
-                  {hierarchicalTasks.map(({ task }) => {
+                  {hierarchicalTasks.map(({ task, instance, idHash }) => {
                     const startOfMonthView = startOfMonth(currentMonth);
                     const endOfMonthView = endOfMonth(currentMonth);
 
                     // Find all descendants recursively to calculate parent range
-                    const getDescendantInstances = (parentId: string): { start: Date; end: Date }[] => {
+                    const getDescendantInstances = (parentId: string, parentInstDate?: string): { start: Date; end: Date }[] => {
                       const children = tasks.filter(t => t.parentId === parentId);
                       let allInstances: { start: Date; end: Date }[] = [];
                       
                       children.forEach(child => {
                         const childInstances = calculateTaskInstances(child, startOfMonthView, endOfMonthView, holidays, tasks);
-                        allInstances = [...allInstances, ...childInstances];
-                        allInstances = [...allInstances, ...getDescendantInstances(child.id)];
+                        const relevant = parentInstDate ? childInstances.filter(ci => ci.originalDate === parentInstDate) : childInstances;
+                        allInstances = [...allInstances, ...relevant];
+                        relevant.forEach(ri => {
+                          allInstances = [...allInstances, ...getDescendantInstances(child.id, ri.originalDate)];
+                        });
                       });
                       
                       return allInstances;
                     };
 
-                    const ownInstances = calculateTaskInstances(task, startOfMonthView, endOfMonthView, holidays, tasks);
-                    const descendantInstances = getDescendantInstances(task.id);
+                    const ownInstances = instance ? [instance] : calculateTaskInstances(task, startOfMonthView, endOfMonthView, holidays, tasks);
+                    const descendantInstances = getDescendantInstances(task.id, instance?.originalDate);
                     
                     // If it has children, the visually effective instances should cover its children
                     const visualInstances = ownInstances.map(own => {
-                      // For periodic tasks, we group descendants that fall within the same period.
-                      // If it's a deadline-based parent, children are usually scheduled 'before',
-                      // so we check if the descendant instance is within one recurrence window of the parent.
-                      const relevantDescendants = descendantInstances.filter(d => {
-                        const dist = differenceInDays(d.start, own.start);
-                        if (task.recurrence.type === 'weekly') return Math.abs(dist) < 7;
-                        if (task.recurrence.type === 'monthly') return Math.abs(dist) < 31;
-                        // For non-recurring, include all descendants that are "nearby" (within a month)
-                        // or just all descendants if there's only one parent instance
-                        return ownInstances.length === 1 || Math.abs(dist) < 31;
-                      });
+                      // With the new instance-based list, a parent row already corresponds to a specific instance.
+                      // So we only need to combine with descendants that belong to THAT specific instance branch.
+                      const relevantDescendants = descendantInstances;
 
                       if (relevantDescendants.length === 0) return own;
 
                       const minStart = new Date(Math.min(own.start.getTime(), ...relevantDescendants.map(d => d.start.getTime())));
                       const maxEnd = new Date(Math.max(own.end.getTime(), ...relevantDescendants.map(d => d.end.getTime())));
                       
-                      return { start: minStart, end: maxEnd };
+                      return { start: minStart, end: maxEnd, originalDate: own.originalDate };
                     });
 
-                    // If it's a parent but has NO instances of its own in this view (e.g. leads to children), 
-                    // we might still want to show a bracket if children are visible. 
-                    // Let's refine: combine all instances
                     const displayedInstances = visualInstances.length > 0 ? visualInstances : (
-                      // If it's a parent, show the bounding box of children
                       descendantInstances.length > 0 ? [{
                         start: new Date(Math.min(...descendantInstances.map(d => d.start.getTime()))),
                         end: new Date(Math.max(...descendantInstances.map(d => d.end.getTime())))
@@ -2067,59 +2413,99 @@ export default function App() {
                     ).filter(inst => inst.start <= endOfMonthView && inst.end >= startOfMonthView);
 
                     return (
-                      <div key={task.id} className="h-[44px] flex items-center relative group pointer-events-none">
+                      <div key={idHash} className="h-[44px] flex items-center relative group pointer-events-none">
                         {displayedInstances.map((instance, idx) => {
-                          const startOffset = Math.max(0, differenceInDays(startOfDay(instance.start), startOfMonthView));
-                          const duration = differenceInDays(startOfDay(instance.end), startOfDay(instance.start)) + 1;
+                          const displayStart = new Date(Math.max(startOfDay(instance.start).getTime(), startOfMonthView.getTime()));
+                          const displayEnd = new Date(Math.min(startOfDay(instance.end).getTime(), endOfMonthView.getTime()));
+                          const startOffset = differenceInDays(displayStart, startOfMonthView);
+                          const duration = differenceInDays(displayEnd, displayStart) + 1;
                           
                           const hasChildren = tasks.some(t => t.parentId === task.id);
 
                           return (
-                            <motion.div
-                              key={idx}
-                              onClick={() => { setEditingTask(task); setIsFormOpen(true); }}
-                              initial={{ opacity: 0, y: 5 }}
-                              animate={{ opacity: 1, y: 0 }}
-                              className={cn(
-                                "absolute h-6 rounded-md shadow-lg cursor-pointer hover:brightness-110 active:scale-[0.98] transition-all flex items-center px-3 z-10 pointer-events-auto",
-                                task.isCompleted ? "opacity-30 grayscale" : "",
-                                hasChildren ? "h-2 mt-2" : "" // Thinner summary bar for parents
+                            <React.Fragment key={idx}>
+                              {dragState?.taskId === task.id && (
+                                <div 
+                                  className="absolute h-6 rounded-md bg-accent/20 border-2 border-dashed border-accent z-20 pointer-events-none"
+                                  style={{
+                                    left: `${(startOffset + (dragState.type === 'move' ? Math.round((mousePos - dragState.startX) / dayWidth) : 0)) * dayWidth}px`,
+                                    width: `${(duration + (dragState.type === 'resize' ? Math.round((mousePos - dragState.startX) / dayWidth) : 0)) * dayWidth - 4}px`,
+                                    top: '10px'
+                                  }}
+                                />
                               )}
-                              style={{ 
-                                left: `${startOffset * dayWidth}px`, 
-                                width: `${duration * dayWidth - 4}px`,
-                                backgroundColor: hasChildren ? '#333' : (
-                                  task.statusSetId 
-                                    ? (statusSets.find(s => s.id === task.statusSetId)?.statuses.find(st => st.id === task.statusId)?.color || task.color || '#4da6ff')
-                                    : (task.color || '#4da6ff')
-                                ),
-                                top: '10px',
-                                boxShadow: hasChildren ? 'none' : `0 4px 12px ${task.color}33`,
-                                borderLeft: hasChildren ? `2px solid #000` : 'none',
-                                borderRight: hasChildren ? `2px solid #000` : 'none',
-                                borderRadius: hasChildren ? '0' : '6px'
-                              }}
-                              title={`${task.title} (${format(instance.start, 'MMM d')} - ${format(instance.end, 'MMM d')})`}
-                            >
-                              {!hasChildren && (
-                                <div className="flex items-center gap-2 w-full overflow-hidden">
-                                  {task.statusSetId && (
-                                    <div className="flex-shrink-0" onClick={(e) => e.stopPropagation()}>
-                                      <StatusBadge task={task} statusSets={statusSets} onUpdate={handleUpdateTask} />
-                                    </div>
-                                  )}
-                                  <span className="text-[11px] truncate text-black font-bold tracking-tight">
-                                    {task.title}
-                                  </span>
-                                </div>
-                              )}
-                              {hasChildren && (
-                                <>
-                                  <div className="absolute -bottom-1 left-0 w-1 h-3 bg-black transform -translate-y-1/2" style={{ clipPath: 'polygon(0 0, 100% 0, 0 100%)' }} />
-                                  <div className="absolute -bottom-1 right-0 w-1 h-3 bg-black transform -translate-y-1/2" style={{ clipPath: 'polygon(0 0, 100% 0, 100% 100%)' }} />
-                                </>
-                              )}
-                            </motion.div>
+                              <motion.div
+                                onMouseDown={(e) => {
+                                  if (hasChildren) return;
+                                  e.stopPropagation();
+                                  const rect = e.currentTarget.getBoundingClientRect();
+                                  const offsetX = e.clientX - rect.left;
+                                  const isResize = rect.width - offsetX < 15;
+                                  setDragState({
+                                    taskId: task.id,
+                                    originalDate: (instance as any).originalDate,
+                                    type: isResize ? 'resize' : 'move',
+                                    startX: e.clientX,
+                                    initialBaseDate: format(instance.start, 'yyyy-MM-dd'),
+                                    initialLeadTime: task.leadTime
+                                  });
+                                  setMousePos(e.clientX);
+                                }}
+                                onClick={(e) => { 
+                                  // Modal only opens via settings icon in task list
+                                }}
+                                initial={{ opacity: 0, y: 5 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                className={cn(
+                                  "absolute h-6 rounded-md shadow-lg cursor-grab active:cursor-grabbing hover:brightness-110 active:scale-[0.98] transition-all flex items-center px-3 z-10 pointer-events-auto",
+                                  task.isCompleted ? "opacity-30 grayscale" : "",
+                                  hasChildren ? "h-2 mt-2 cursor-default" : "",
+                                  dragState?.taskId === task.id ? "ring-2 ring-accent opacity-70 cursor-grabbing" : ""
+                                )}
+                                style={{ 
+                                  left: `${startOffset * dayWidth}px`, 
+                                  width: `${duration * dayWidth - 4}px`,
+                                  backgroundColor: hasChildren ? '#333' : (
+                                    task.statusSetId 
+                                      ? (statusSets.find(s => s.id === task.statusSetId)?.statuses.find(st => st.id === task.statusId)?.color || task.color || '#4da6ff')
+                                      : (task.color || '#4da6ff')
+                                  ),
+                                  top: '10px',
+                                  boxShadow: hasChildren ? 'none' : `0 4px 12px ${task.color}33`,
+                                  borderLeft: hasChildren ? `2px solid #000` : 'none',
+                                  borderRight: hasChildren ? `2px solid #000` : 'none',
+                                  borderRadius: hasChildren ? '0' : '6px'
+                                }}
+                                title={`${task.title} (${format(instance.start, 'MMM d')} - ${format(instance.end, 'MMM d')})`}
+                              >
+                                {!hasChildren && (
+                                  <div className="absolute right-0 top-0 bottom-0 w-2 cursor-ew-resize hover:bg-white/20 transition-colors rounded-r-md" />
+                                )}
+                                {!hasChildren && (
+                                  <div className="flex items-center gap-2 w-full overflow-hidden">
+                                    {task.statusSetId && (
+                                      <div className="flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+                                        <StatusBadge task={task} statusSets={statusSets} onUpdate={handleUpdateTask} />
+                                      </div>
+                                    )}
+                                    <span className="text-[11px] truncate text-black font-bold tracking-tight">
+                                      {task.title}
+                                    </span>
+                                    {task.isIndefinite && (
+                                      <div className="flex-shrink-0 bg-black/10 rounded px-1">
+                                        <InfinityIcon size={12} className="text-black/60" />
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                                {hasChildren && (
+                                  <>
+                                    <div className="absolute -bottom-1 left-0 w-1 h-3 bg-black transform -translate-y-1/2" style={{ clipPath: 'polygon(0 0, 100% 0, 0 100%)' }} />
+                                    <div className="absolute -bottom-1 right-0 w-1 h-3 bg-black transform -translate-y-1/2" style={{ clipPath: 'polygon(0 0, 100% 0, 100% 100%)' }} />
+                                  </>
+                                )}
+                              </motion.div>
+                            </React.Fragment>
                           );
                         })}
                         {/* Hover highlight row */}
@@ -2152,6 +2538,84 @@ export default function App() {
             onClose={() => setIsStatusManagerOpen(false)}
           />
         )}
+        {editChoiceTarget && (
+          <EditModeDialog 
+            onSelect={(mode) => {
+              const { task, originalDate } = editChoiceTarget;
+              if (mode === 'individual') {
+                const dateKey = originalDate || task.baseDate || format(new Date(), 'yyyy-MM-dd');
+                setEditingInstanceDate(dateKey);
+                // Load merged data for form
+                const merged = { ...task, ...(task.overrides?.[dateKey] || {}) };
+                setEditingTask(merged);
+              } else {
+                setEditingInstanceDate(null);
+                setEditingTask(task);
+              }
+              setEditChoiceTarget(null);
+              setIsFormOpen(true);
+            }}
+            onCancel={() => setEditChoiceTarget(null)}
+          />
+        )}
+
+        {pendingChange && (
+          <ConfirmDialog 
+            title={t.confirmChange}
+            pendingChange={pendingChange}
+            tasks={tasks}
+            onConfirm={handleConfirmChange}
+            onCancel={() => setPendingChange(null)}
+          />
+        )}
+
+        <AnimatePresence>
+          {viewingDescriptionTask && (
+            <div className="fixed inset-0 z-[120] flex items-center justify-center p-6 backdrop-blur-md bg-black/60">
+              <motion.div 
+                initial={{ opacity: 0, scale: 0.95, y: 20 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: 20 }}
+                className="w-full max-w-3xl bg-surface border border-border rounded-2xl shadow-2xl p-8 flex flex-col max-h-[85vh]"
+              >
+                <div className="flex items-center justify-between mb-6 border-b border-border pb-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-accent/10 rounded-xl flex items-center justify-center">
+                      <FileText className="text-accent" size={20} />
+                    </div>
+                    <div>
+                      <h2 className="text-lg font-bold text-text-primary">{viewingDescriptionTask.title}</h2>
+                      <p className="text-[10px] text-text-secondary uppercase tracking-widest font-bold">{t.description}</p>
+                    </div>
+                  </div>
+                  <button 
+                    onClick={() => setViewingDescriptionTask(null)}
+                    className="p-2 text-text-secondary hover:text-text-primary transition-colors bg-bg rounded-lg border border-border"
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
+
+                <div className="flex-1 overflow-y-auto pr-4 custom-scrollbar">
+                  <div className="markdown-body p-6 bg-bg/30 rounded-xl border border-border/50">
+                    <ReactMarkdown>
+                      {viewingDescriptionTask.description || ''}
+                    </ReactMarkdown>
+                  </div>
+                </div>
+
+                <div className="mt-8 flex justify-end">
+                  <button
+                    onClick={() => setViewingDescriptionTask(null)}
+                    className="px-8 py-3 bg-accent text-text-on-accent text-[11px] font-bold uppercase rounded-xl shadow-lg shadow-accent/20 hover:brightness-110 active:scale-95 transition-all"
+                  >
+                    {t.discard}
+                  </button>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
       </main>
 
       {/* Task Form Modal */}
@@ -2328,11 +2792,13 @@ export default function App() {
                     const formData = new FormData(e.currentTarget);
                     const data: Partial<Task> = {
                       title: formData.get('title') as string,
-                      leadTime: parseInt(formData.get('leadTime') as string) || 0,
+                      leadTime: isIndefinite ? 0 : (parseInt(formData.get('leadTime') as string) || 0),
                       parentId: (formData.get('parentId') as string) || null,
-                      baseDate: manualBaseDate || undefined,
-                      baseType: manualBaseType,
-                      recurrence: {
+                      baseDate: isIndefinite ? undefined : (manualBaseDate || undefined),
+                      baseType: isIndefinite ? 'start-date' : manualBaseType,
+                      isIndefinite,
+                      description,
+                      recurrence: isIndefinite ? { type: 'none' } : {
                         type: recType,
                         weeklyDays: recType === 'weekly' ? weeklyDays : [],
                         monthlyDays: recType === 'monthly' ? monthlyDays : [],
@@ -2360,62 +2826,132 @@ export default function App() {
                   />
                 </div>
 
-                <div className="flex items-center gap-6">
-                  <label className={cn(
-                    "w-32 flex-shrink-0 text-[10px] font-bold uppercase text-text-secondary tracking-widest transition-opacity",
-                    recType !== 'none' && "opacity-30"
-                  )}>
-                    {recType !== 'none' ? t.deadline : (manualBaseType === 'deadline' ? t.deadline : t.startPoint)}
-                  </label>
-                  <div className="flex-1 flex gap-2">
-                    <DatePicker 
-                      value={manualBaseDate}
-                      disabled={recType !== 'none'}
-                      onChange={setManualBaseDate}
-                    />
-                    {recType === 'none' && (
-                      <div className="flex bg-bg p-1 rounded-lg border border-border">
-                        <button
-                          type="button"
-                          onClick={() => setManualBaseType('start-date')}
-                          className={cn(
-                            "px-3 py-1 text-[8px] font-black uppercase rounded-md transition-all",
-                            manualBaseType === 'start-date' ? "bg-accent text-black" : "text-text-secondary"
-                          )}
-                        >
-                          {t.startPoint}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setManualBaseType('deadline')}
-                          className={cn(
-                            "px-3 py-1 text-[8px] font-black uppercase rounded-md transition-all",
-                            manualBaseType === 'deadline' ? "bg-accent text-black" : "text-text-secondary"
-                          )}
-                        >
-                          {t.deadlinePoint}
-                        </button>
-                      </div>
-                    )}
+                <div className="flex flex-col gap-3">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[10px] font-bold uppercase text-text-secondary tracking-widest">{t.description}</label>
+                    <div className="flex bg-bg p-0.5 rounded-md border border-border">
+                      <button
+                        type="button"
+                        onClick={() => setIsPreviewMode(false)}
+                        className={cn(
+                          "px-2 py-1 flex items-center gap-1.5 text-[8px] font-black uppercase rounded transition-all",
+                          !isPreviewMode ? "bg-accent text-black" : "text-text-secondary hover:text-text-primary"
+                        )}
+                      >
+                        <Edit3 size={10} /> {t.edit}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setIsPreviewMode(true)}
+                        className={cn(
+                          "px-2 py-1 flex items-center gap-1.5 text-[8px] font-black uppercase rounded transition-all",
+                          isPreviewMode ? "bg-accent text-black" : "text-text-secondary hover:text-text-primary"
+                        )}
+                      >
+                        <Eye size={10} /> {t.preview}
+                      </button>
+                    </div>
                   </div>
+                  
+                  {isPreviewMode ? (
+                    <div className="min-h-[120px] max-h-[300px] overflow-y-auto bg-sidebar/50 border border-border rounded-lg px-4 py-3">
+                      <div className="markdown-body">
+                        <ReactMarkdown>
+                          {description || `*${t.noDescription}*`}
+                        </ReactMarkdown>
+                      </div>
+                    </div>
+                  ) : (
+                    <textarea 
+                      value={description}
+                      onChange={(e) => setDescription(e.target.value)}
+                      className="min-h-[120px] max-h-[300px] bg-bg border border-border rounded-lg px-4 py-3 focus:outline-none focus:border-accent text-sm text-text-primary transition-colors resize-y"
+                      placeholder="Markdown..."
+                    />
+                  )}
                 </div>
-                
+
                 <div className="flex items-center gap-6">
-                  <label className="w-32 flex-shrink-0 text-[10px] font-bold uppercase text-text-secondary tracking-widest">{t.leadTimeDays}</label>
-                  <input 
-                    name="leadTime" 
-                    type="number" 
-                    min="0"
-                    defaultValue={editingTask?.leadTime || 0}
-                    className="flex-1 bg-bg border border-border rounded-lg px-4 py-3 focus:outline-none focus:border-accent text-text-primary transition-colors"
-                  />
+                  <label className="w-32 flex-shrink-0 text-[10px] font-bold uppercase text-text-secondary tracking-widest">{t.indefiniteTask}</label>
+                  <button
+                    type="button"
+                    onClick={() => setIsIndefinite(!isIndefinite)}
+                    className={cn(
+                      "relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none",
+                      isIndefinite ? "bg-accent" : "bg-border"
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        "inline-block h-4 w-4 transform rounded-full bg-white transition-transform",
+                        isIndefinite ? "translate-x-6" : "translate-x-1"
+                      )}
+                    />
+                  </button>
+                  <span className="text-[10px] font-bold text-text-secondary uppercase">{isIndefinite ? t.on : t.off}</span>
                 </div>
+
+                {!isIndefinite && (
+                  <>
+                    <div className="flex items-center gap-6">
+                      <label className={cn(
+                        "w-32 flex-shrink-0 text-[10px] font-bold uppercase text-text-secondary tracking-widest transition-opacity",
+                        recType !== 'none' && "opacity-30"
+                      )}>
+                        {recType !== 'none' ? t.deadline : (manualBaseType === 'deadline' ? t.deadline : t.startPoint)}
+                      </label>
+                      <div className="flex-1 flex gap-2">
+                        <DatePicker 
+                          value={manualBaseDate}
+                          disabled={recType !== 'none'}
+                          onChange={setManualBaseDate}
+                        />
+                        {recType === 'none' && (
+                          <div className="flex bg-bg p-1 rounded-lg border border-border">
+                            <button
+                              type="button"
+                              onClick={() => setManualBaseType('start-date')}
+                              className={cn(
+                                "px-3 py-1 text-[8px] font-black uppercase rounded-md transition-all",
+                                manualBaseType === 'start-date' ? "bg-accent text-black" : "text-text-secondary"
+                              )}
+                            >
+                              {t.startPoint}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setManualBaseType('deadline')}
+                              className={cn(
+                                "px-3 py-1 text-[8px] font-black uppercase rounded-md transition-all",
+                                manualBaseType === 'deadline' ? "bg-accent text-black" : "text-text-secondary"
+                              )}
+                            >
+                              {t.deadlinePoint}
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    
+                    <div className="flex items-center gap-6">
+                      <label className="w-32 flex-shrink-0 text-[10px] font-bold uppercase text-text-secondary tracking-widest">{t.leadTimeDays}</label>
+                      <input 
+                        name="leadTime" 
+                        type="number" 
+                        min="0"
+                        defaultValue={editingTask?.leadTime || 0}
+                        className="flex-1 bg-bg border border-border rounded-lg px-4 py-3 focus:outline-none focus:border-accent text-text-primary transition-colors"
+                      />
+                    </div>
+                  </>
+                )}
 
                 <div className="flex items-center gap-6">
                   <label className="w-32 flex-shrink-0 text-[10px] font-bold uppercase text-text-secondary tracking-widest">{t.parentContext}</label>
                   <select 
                     name="parentId" 
-                    defaultValue={editingTask?.parentId || ''}
+                    value={formParentId || ''}
+                    onChange={(e) => setFormParentId(e.target.value || null)}
                     className="flex-1 bg-bg border border-border rounded-lg px-4 py-3 focus:outline-none focus:border-accent text-text-primary transition-colors cursor-pointer appearance-none"
                   >
                     <option value="">{t.topLevel}</option>
@@ -2425,48 +2961,79 @@ export default function App() {
                   </select>
                 </div>
 
-                <div className="border-t border-border pt-6 space-y-6">
-                  <div>
-                    <label className="block text-[10px] font-bold uppercase text-text-secondary tracking-widest mb-4 text-center">{t.recurrenceModel}</label>
-                    <div className="flex gap-1 bg-bg p-1 rounded-lg border border-border">
-                       {(['none', 'recurring'] as const).map(mode => (
-                         <label key={mode} className="flex-1">
-                           <input 
-                            type="radio" 
-                            name="recType" 
-                            value={mode} 
-                            checked={mode === 'none' ? recType === 'none' : recType !== 'none'}
-                            onChange={() => {
-                              if (mode === 'none') setRecType('none');
-                              else if (recType === 'none') setRecType('weekly');
-                            }}
-                            className="sr-only peer"
-                           />
-                           <div className="text-center py-2 text-[10px] rounded-md cursor-pointer transition-all uppercase tracking-widest font-black peer-checked:bg-accent peer-checked:text-text-on-accent text-text-secondary hover:text-text-primary">
-                             {mode === 'none' ? t.recurrenceNone : t.recurrenceExists}
-                           </div>
-                         </label>
-                       ))}
+                {isIndefinite ? null : (editingInstanceDate ? (
+                  <div className="p-6 bg-accent-soft border border-accent/20 rounded-2xl">
+                    <div className="flex items-center gap-3 mb-2">
+                      <Clock size={16} className="text-accent" />
+                      <span className="text-[10px] font-black uppercase text-accent tracking-[2px]">{t.editIndividual}</span>
                     </div>
+                    <p className="text-[11px] text-text-primary opacity-70 leading-relaxed font-medium">
+                      {t.editModeDescription}
+                    </p>
                   </div>
+                ) : (() => {
+                  const parentTask = tasks.find(t => t.id === formParentId);
+                  const isParentRecurring = parentTask && parentTask.recurrence.type !== 'none';
                   
-                  <div className="min-h-32">
-                    <RecurrenceOptions 
-                      type={recType} 
-                      setType={setRecType}
-                      weeklyDays={weeklyDays} 
-                      setWeeklyDays={setWeeklyDays}
-                      monthlyDays={monthlyDays}
-                      setMonthlyDays={setMonthlyDays}
-                      interval={interval}
-                      setInterval={setIntervalValue}
-                      months={months}
-                      setMonths={setMonths}
-                      holidayAdjustment={holidayAdjustment}
-                      setHolidayAdjustment={setHolidayAdjustment}
-                    />
-                  </div>
-                </div>
+                  if (isParentRecurring) {
+                    return (
+                      <div className="p-6 bg-bg/50 border border-border rounded-2xl">
+                        <div className="flex items-center gap-3 mb-2">
+                          <Clock size={16} className="text-text-secondary" />
+                          <span className="text-[10px] font-black uppercase text-text-secondary tracking-[2px]">{t.recurrenceNone}</span>
+                        </div>
+                        <p className="text-[11px] text-text-secondary opacity-70 leading-relaxed font-medium">
+                          親タスクが繰り返し設定されているため、このタスクは親の設定に従います。
+                        </p>
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div className="border-t border-border pt-6 space-y-6">
+                      <div>
+                        <label className="block text-[10px] font-bold uppercase text-text-secondary tracking-widest mb-4 text-center">{t.recurrenceModel}</label>
+                        <div className="flex gap-1 bg-bg p-1 rounded-lg border border-border">
+                           {(['none', 'recurring'] as const).map(mode => (
+                             <label key={mode} className="flex-1">
+                               <input 
+                                type="radio" 
+                                name="recType" 
+                                value={mode} 
+                                checked={mode === 'none' ? recType === 'none' : recType !== 'none'}
+                                onChange={() => {
+                                  if (mode === 'none') setRecType('none');
+                                  else if (recType === 'none') setRecType('weekly');
+                                }}
+                                className="sr-only peer"
+                               />
+                               <div className="text-center py-2 text-[10px] rounded-md cursor-pointer transition-all uppercase tracking-widest font-black peer-checked:bg-accent peer-checked:text-text-on-accent text-text-secondary hover:text-text-primary">
+                                 {mode === 'none' ? t.recurrenceNone : t.recurrenceExists}
+                               </div>
+                             </label>
+                           ))}
+                        </div>
+                      </div>
+                      
+                      <div className="min-h-32">
+                        <RecurrenceOptions 
+                          type={recType} 
+                          setType={setRecType}
+                          weeklyDays={weeklyDays} 
+                          setWeeklyDays={setWeeklyDays}
+                          monthlyDays={monthlyDays}
+                          setMonthlyDays={setMonthlyDays}
+                          interval={interval}
+                          setInterval={setIntervalValue}
+                          months={months}
+                          setMonths={setMonths}
+                          holidayAdjustment={holidayAdjustment}
+                          setHolidayAdjustment={setHolidayAdjustment}
+                        />
+                      </div>
+                    </div>
+                  );
+                })())}
 
                 <div className="flex gap-4 pt-4 border-t border-border mt-6">
                     <button 
