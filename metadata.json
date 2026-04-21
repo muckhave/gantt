@@ -1,5 +1,5 @@
 {
-  "name": "GanttFlow: Professional TODO & Scheduler",
+  "name": "GanttChart: Professional TODO & Scheduler",
   "description": "A high-performance TODO management app featuring hierarchical task sets, lead-time estimation, business-day-aware periodic scheduling, and integrated Gantt charts.",
   "requestFramePermissions": [],
   "majorCapabilities": []

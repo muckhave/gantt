@@ -1,6 +1,6 @@
 export const translations = {
   ja: {
-    brand: "GanttFlow",
+    brand: "GanttChart",
     projectBoard: "プロジェクトボード",
     schedule: "スケジュール",
     taskSets: "タスクセット",
@@ -119,7 +119,36 @@ export const translations = {
     description: "説明",
     preview: "プレビュー",
     edit: "編集",
-    noDescription: "説明はありません"
+    noDescription: "説明はありません",
+    recurringTaskList: "繰り返しタスク一覧",
+    indefiniteTaskList: "無期限タスク一覧",
+    noRecurringTasks: "繰り返しタスクはありません",
+    noIndefiniteTasks: "無期限タスクはありません",
+    recurrenceInfo: "繰り返し設定",
+    dataFolderSettings: "データフォルダ設定",
+    dataFolderPath: "データフォルダのパス",
+    dataFolderPathPlaceholder: "フォルダの絶対パスを入力...",
+    dataFolderSave: "保存して再読み込み",
+    dataFolderReset: "デフォルトに戻す",
+    dataFolderCurrent: "現在のフォルダ",
+    dataFolderDefault: "デフォルト",
+    userManage: "ユーザー管理",
+    userList: "ユーザー一覧",
+    newUser: "新規ユーザー",
+    userName: "ユーザー名",
+    addUser: "ユーザーを追加",
+    noUsers: "ユーザーが登録されていません",
+    saveUser: "ユーザーを保存",
+    assignee: "担当者",
+    unassigned: "未割り当て",
+    myUser: "自分のユーザー",
+    userSettings: "ユーザー設定",
+    selectMyUser: "自分として設定するユーザーを選択...",
+    importHolidayCsv: "CSVから一括インポート",
+    importHolidayCsvHint: "内閣府形式（月日,名称）のCSVに対応",
+    importHolidayCsvSuccess: "件の祝日をインポートしました",
+    importHolidayCsvError: "CSVの解析に失敗しました",
+    importHolidayCsvDuplicate: "件追加（重複スキップ）"
   }
 };
 

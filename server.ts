@@ -5,17 +5,41 @@ import path from "path";
 import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DATA_DIR = path.join(__dirname, "data");
-const TASKS_FILE = path.join(DATA_DIR, "tasks.csv");
-const HOLIDAYS_FILE = path.join(DATA_DIR, "holidays.csv");
-const TEMPLATES_FILE = path.join(DATA_DIR, "templates.csv");
-const STATUS_SETS_FILE = path.join(DATA_DIR, "status_sets.json");
+const CONFIG_FILE = path.join(__dirname, "config.json");
+const DEFAULT_DATA_DIR = path.join(__dirname, "data");
+
+let currentDataDir = DEFAULT_DATA_DIR;
+
+function getFiles() {
+  return {
+    tasks: path.join(currentDataDir, "tasks.csv"),
+    holidays: path.join(currentDataDir, "holidays.csv"),
+    templates: path.join(currentDataDir, "templates.csv"),
+    statusSets: path.join(currentDataDir, "status_sets.json"),
+    users: path.join(currentDataDir, "users.json"),
+  };
+}
+
+async function loadConfig() {
+  try {
+    const data = await fs.readFile(CONFIG_FILE, "utf-8");
+    const config = JSON.parse(data);
+    if (config.dataDir) currentDataDir = config.dataDir;
+  } catch {
+    // use default
+  }
+}
+
+async function saveConfig(dataDir: string) {
+  await fs.writeFile(CONFIG_FILE, JSON.stringify({ dataDir }, null, 2), "utf-8");
+  currentDataDir = dataDir;
+}
 
 async function ensureDataDir() {
   try {
-    await fs.access(DATA_DIR);
+    await fs.access(currentDataDir);
   } catch {
-    await fs.mkdir(DATA_DIR);
+    await fs.mkdir(currentDataDir, { recursive: true });
   }
 }
 
@@ -26,7 +50,7 @@ function parseJsonField(s: string): any {
 }
 
 function tasksToCsv(tasks: any[]): string {
-  const header = "id,title,parentId,leadTime,recurrenceType,weeklyDays,monthlyDays,isCompleted,color,createdAt,baseDate,statusId,statusSetId,offsetDays,offsetDirection,parentPoint,isIndefinite,description,baseType,overrides,exclusions,recurrenceInterval,recurrenceMonths,recurrenceHolidayAdjustment\n";
+  const header = "id,title,parentId,leadTime,recurrenceType,weeklyDays,monthlyDays,isCompleted,color,createdAt,baseDate,statusId,statusSetId,offsetDays,offsetDirection,parentPoint,isIndefinite,description,baseType,overrides,exclusions,recurrenceInterval,recurrenceMonths,recurrenceHolidayAdjustment,assigneeId\n";
   const rows = tasks.map(t => {
     return [
       t.id,
@@ -52,7 +76,8 @@ function tasksToCsv(tasks: any[]): string {
       `"${(t.exclusions || []).join('|')}"`,
       t.recurrence?.interval ?? "",
       `"${(t.recurrence?.months || []).join('|')}"`,
-      t.recurrence?.holidayAdjustment || ""
+      t.recurrence?.holidayAdjustment || "",
+      t.assigneeId || ""
     ].join(",");
   });
   return header + rows.join("\n");
@@ -108,7 +133,8 @@ function csvToTasks(csv: string): any[] {
       description: values[17] || undefined,
       baseType: values[18] || undefined,
       overrides: overridesRaw && Object.keys(overridesRaw).length > 0 ? overridesRaw : undefined,
-      exclusions: exclusionsRaw.length > 0 ? exclusionsRaw : undefined
+      exclusions: exclusionsRaw.length > 0 ? exclusionsRaw : undefined,
+      assigneeId: values[24] || undefined
     };
   });
 }
@@ -178,16 +204,33 @@ function csvToTemplates(csv: string): any[] {
 }
 
 async function startServer() {
+  await loadConfig();
   await ensureDataDir();
   const app = express();
   const PORT = 3000;
 
   app.use(express.json());
 
+  // Config API
+  app.get("/api/config", (req, res) => {
+    res.json({ dataDir: currentDataDir, defaultDataDir: DEFAULT_DATA_DIR });
+  });
+
+  app.post("/api/config", async (req, res) => {
+    const { dataDir } = req.body;
+    if (!dataDir || typeof dataDir !== "string") {
+      res.status(400).json({ error: "dataDir is required" });
+      return;
+    }
+    await saveConfig(dataDir);
+    await ensureDataDir();
+    res.json({ success: true, dataDir: currentDataDir });
+  });
+
   // API Routes
   app.get("/api/tasks", async (req, res) => {
     try {
-      const data = await fs.readFile(TASKS_FILE, "utf-8");
+      const data = await fs.readFile(getFiles().tasks, "utf-8");
       res.json(csvToTasks(data));
     } catch {
       res.json([]);
@@ -195,13 +238,13 @@ async function startServer() {
   });
 
   app.post("/api/tasks", async (req, res) => {
-    await fs.writeFile(TASKS_FILE, tasksToCsv(req.body), "utf-8");
+    await fs.writeFile(getFiles().tasks, tasksToCsv(req.body), "utf-8");
     res.json({ success: true });
   });
 
   app.get("/api/holidays", async (req, res) => {
     try {
-      const data = await fs.readFile(HOLIDAYS_FILE, "utf-8");
+      const data = await fs.readFile(getFiles().holidays, "utf-8");
       res.json(csvToHolidays(data));
     } catch {
       res.json([
@@ -212,13 +255,13 @@ async function startServer() {
   });
 
   app.post("/api/holidays", async (req, res) => {
-    await fs.writeFile(HOLIDAYS_FILE, holidaysToCsv(req.body), "utf-8");
+    await fs.writeFile(getFiles().holidays, holidaysToCsv(req.body), "utf-8");
     res.json({ success: true });
   });
 
   app.get("/api/templates", async (req, res) => {
     try {
-      const data = await fs.readFile(TEMPLATES_FILE, "utf-8");
+      const data = await fs.readFile(getFiles().templates, "utf-8");
       res.json(csvToTemplates(data));
     } catch {
       res.json([]);
@@ -226,13 +269,27 @@ async function startServer() {
   });
 
   app.post("/api/templates", async (req, res) => {
-    await fs.writeFile(TEMPLATES_FILE, templatesToCsv(req.body), "utf-8");
+    await fs.writeFile(getFiles().templates, templatesToCsv(req.body), "utf-8");
+    res.json({ success: true });
+  });
+
+  app.get("/api/users", async (req, res) => {
+    try {
+      const data = await fs.readFile(getFiles().users, "utf-8");
+      res.json(JSON.parse(data));
+    } catch {
+      res.json([]);
+    }
+  });
+
+  app.post("/api/users", async (req, res) => {
+    await fs.writeFile(getFiles().users, JSON.stringify(req.body, null, 2), "utf-8");
     res.json({ success: true });
   });
 
   app.get("/api/status-sets", async (req, res) => {
     try {
-      const data = await fs.readFile(STATUS_SETS_FILE, "utf-8");
+      const data = await fs.readFile(getFiles().statusSets, "utf-8");
       res.json(JSON.parse(data));
     } catch {
       res.json([{
@@ -249,7 +306,7 @@ async function startServer() {
   });
 
   app.post("/api/status-sets", async (req, res) => {
-    await fs.writeFile(STATUS_SETS_FILE, JSON.stringify(req.body, null, 2), "utf-8");
+    await fs.writeFile(getFiles().statusSets, JSON.stringify(req.body, null, 2), "utf-8");
     res.json({ success: true });
   });
 
@@ -270,7 +327,7 @@ async function startServer() {
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
-    console.log(`Data directory: ${DATA_DIR}`);
+    console.log(`Data directory: ${currentDataDir}`);
   });
 }
 

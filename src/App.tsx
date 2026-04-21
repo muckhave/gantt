@@ -36,23 +36,26 @@ import {
   Infinity as InfinityIcon,
   FileText,
   Eye,
-  Edit3
+  Edit3,
+  Sun,
+  Moon,
+  Upload
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { motion, AnimatePresence } from 'motion/react';
-import { Sun, Moon } from 'lucide-react';
-import { 
-  Task, 
-  Holiday, 
-  RecurrenceType, 
+import {
+  Task,
+  Holiday,
+  RecurrenceType,
   RecurrenceRule,
   HolidayAdjustment,
-  isHoliday, 
-  isBusinessDay, 
-  TaskTemplateSet, 
-  TemplateItem, 
+  isHoliday,
+  isBusinessDay,
+  TaskTemplateSet,
+  TemplateItem,
   Status,
   StatusSet,
+  User,
   subBusinessDays,
   addBusinessDays,
   calculateEndDate,
@@ -148,8 +151,7 @@ const EditModeDialog: React.FC<{
       <div className="w-12 h-12 bg-accent/10 rounded-full flex items-center justify-center mx-auto mb-6">
         <Settings className="text-accent" size={24} />
       </div>
-      <h3 className="text-lg font-bold text-text-primary mb-2 text-center">{t.selectEditMode}</h3>
-      <p className="text-xs text-text-secondary text-center mb-8">{t.editModeDescription}</p>
+
       
       <div className="flex flex-col gap-3">
         <button 
@@ -556,11 +558,12 @@ const StatusSetManager: React.FC<{
 
 // --- Components ---
 
-const TaskRow: React.FC<{ 
-  task: Task; 
-  level: number; 
-  isExpanded: boolean; 
+const TaskRow: React.FC<{
+  task: Task;
+  level: number;
+  isExpanded: boolean;
   statusSets: StatusSet[];
+  users: User[];
   hasChildren: boolean;
   instanceDate?: string;
   onToggle: () => void;
@@ -569,15 +572,16 @@ const TaskRow: React.FC<{
   onEdit: (task: Task, originalDate?: string) => void;
   onUpdate: (id: string, data: Partial<Task>) => void;
   onViewDescription: (task: Task) => void;
-}> = ({ 
-  task, 
-  level, 
-  isExpanded, 
+}> = ({
+  task,
+  level,
+  isExpanded,
   statusSets,
+  users,
   hasChildren,
   instanceDate,
-  onToggle, 
-  onDelete, 
+  onToggle,
+  onDelete,
   onComplete,
   onEdit,
   onUpdate,
@@ -586,6 +590,10 @@ const TaskRow: React.FC<{
   const effectiveTask = instanceDate && task.overrides?.[instanceDate]
     ? { ...task, ...task.overrides[instanceDate] }
     : task;
+  const effectiveAssigneeId = (instanceDate && task.overrides?.[instanceDate] !== undefined)
+    ? (task.overrides![instanceDate].assigneeId ?? task.assigneeId)
+    : task.assigneeId;
+  const assignee = users.find(u => u.id === effectiveAssigneeId);
 
   return (
     <div
@@ -644,6 +652,16 @@ const TaskRow: React.FC<{
                 <ReactMarkdown>{task.description}</ReactMarkdown>
               </div>
             </div>
+          </div>
+        )}
+        {assignee && (
+          <div
+            className="flex-shrink-0 flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-bold"
+            style={{ backgroundColor: (assignee.color || '#6366f1') + '33', color: assignee.color || '#6366f1' }}
+            title={assignee.name}
+          >
+            <div className="w-2 h-2 rounded-full" style={{ backgroundColor: assignee.color || '#6366f1' }} />
+            {assignee.name}
           </div>
         )}
       </div>
@@ -1565,17 +1583,121 @@ const TemplateManager: React.FC<{
   );
 };
 
+const UserManager: React.FC<{
+  users: User[];
+  onSave: (users: User[]) => void;
+  onClose: () => void;
+}> = ({ users, onSave, onClose }) => {
+  const [nameInput, setNameInput] = useState('');
+  const [colorInput, setColorInput] = useState('#6366f1');
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
+
+  const handleAdd = () => {
+    if (!nameInput.trim()) return;
+    const newUser: User = { id: generateId(), name: nameInput.trim(), color: colorInput };
+    onSave([...users, newUser]);
+    setNameInput('');
+    setColorInput('#6366f1');
+  };
+
+  const handleDelete = (id: string) => {
+    onSave(users.filter(u => u.id !== id));
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-6 backdrop-blur-md bg-black/60">
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        exit={{ opacity: 0, scale: 0.95 }}
+        className="w-full max-w-md bg-surface border border-border rounded-xl shadow-2xl p-10"
+      >
+        <div className="flex items-center justify-between mb-8">
+          <h2 className="text-xl font-bold text-text-primary">{t.userManage}</h2>
+          <button onClick={onClose} className="p-2 text-text-secondary hover:text-text-primary transition-colors">
+            <X size={20} />
+          </button>
+        </div>
+
+        <div className="flex gap-3 mb-6">
+          <input
+            type="text"
+            value={nameInput}
+            onChange={e => setNameInput(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleAdd(); } }}
+            placeholder={t.userName}
+            className="flex-1 bg-bg border border-border rounded-lg px-4 py-3 text-sm text-text-primary focus:outline-none focus:border-accent"
+          />
+          <input
+            type="color"
+            value={colorInput}
+            onChange={e => setColorInput(e.target.value)}
+            className="w-12 h-12 rounded-lg border border-border bg-bg cursor-pointer p-1"
+          />
+          <button
+            onClick={handleAdd}
+            className="px-4 py-2 bg-accent text-text-on-accent text-[11px] font-bold uppercase rounded-lg hover:brightness-110"
+          >
+            <Plus size={16} />
+          </button>
+        </div>
+
+        <div className="max-h-72 overflow-y-auto rounded-lg border border-border bg-bg/50">
+          {users.length === 0 && (
+            <p className="p-8 text-center text-xs text-text-secondary opacity-50 uppercase tracking-widest font-bold">{t.noUsers}</p>
+          )}
+          <div className="divide-y divide-border">
+            {users.map(u => (
+              <div key={u.id} className="p-4 flex items-center gap-3 group">
+                <div className="w-4 h-4 rounded-full flex-shrink-0" style={{ backgroundColor: u.color || '#6366f1' }} />
+                <span className="flex-1 text-sm font-medium text-text-primary">{u.name}</span>
+                <button
+                  onClick={() => handleDelete(u.id)}
+                  className="text-text-secondary hover:text-red-400 p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="mt-8">
+          <button
+            onClick={onClose}
+            className="w-full bg-border text-text-primary py-4 rounded-xl text-xs font-black uppercase tracking-widest hover:brightness-125 transition-all"
+          >
+            {t.returnToDashboard}
+          </button>
+        </div>
+      </motion.div>
+    </div>
+  );
+};
+
 export default function App() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [holidays, setHolidays] = useState<Holiday[]>([]);
   const [templates, setTemplates] = useState<TaskTemplateSet[]>([]);
   const [statusSets, setStatusSets] = useState<StatusSet[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [isHolidayManagerOpen, setIsHolidayManagerOpen] = useState(false);
   const [isStatusManagerOpen, setIsStatusManagerOpen] = useState(false);
+  const [isUserManagerOpen, setIsUserManagerOpen] = useState(false);
+  const [currentUserId, setCurrentUserId] = useState<string>(() => {
+    return localStorage.getItem('ganttflow_current_user') || '';
+  });
   const [holidayDate, setHolidayDate] = useState<string>('');
   const [isTemplateManagerOpen, setIsTemplateManagerOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
@@ -1595,6 +1717,8 @@ export default function App() {
     return (localStorage.getItem('ganttflow_theme') as 'dark' | 'light') || 'dark';
   });
   
+  const [viewMode, setViewMode] = useState<'gantt' | 'list'>('gantt');
+  const [ganttUserFilter, setGanttUserFilter] = useState<string>(() => localStorage.getItem('ganttflow_current_user') || '');
   const [dragState, setDragState] = useState<DragState | null>(null);
   const [mousePos, setMousePos] = useState(0);
   const [pendingChange, setPendingChange] = useState<{ id: string; baseDate: string; leadTime: number; originalDate?: string } | null>(null);
@@ -1616,8 +1740,13 @@ export default function App() {
   const [formParentId, setFormParentId] = useState<string | null>(null);
   const [isIndefinite, setIsIndefinite] = useState(false);
   const [description, setDescription] = useState('');
+  const [formAssigneeId, setFormAssigneeId] = useState<string>('');
   const [isPreviewMode, setIsPreviewMode] = useState(false);
   const [viewingDescriptionTask, setViewingDescriptionTask] = useState<Task | null>(null);
+  const [isDataDirOpen, setIsDataDirOpen] = useState(false);
+  const [dataDir, setDataDir] = useState('');
+  const [defaultDataDir, setDefaultDataDir] = useState('');
+  const [dataDirInput, setDataDirInput] = useState('');
 
   useEffect(() => {
     if (editingTask) {
@@ -1632,6 +1761,7 @@ export default function App() {
       setFormParentId(editingTask.parentId);
       setIsIndefinite(editingTask.isIndefinite || false);
       setDescription(editingTask.description || '');
+      setFormAssigneeId(editingTask.assigneeId || '');
       setIsPreviewMode(false);
     } else {
       setRecType('none');
@@ -1645,9 +1775,10 @@ export default function App() {
       setFormParentId(null);
       setIsIndefinite(false);
       setDescription('');
+      setFormAssigneeId(currentUserId || '');
       setIsPreviewMode(false);
     }
-  }, [editingTask, isFormOpen]);
+  }, [editingTask, isFormOpen, currentUserId]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -1666,33 +1797,49 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isFormOpen, isHolidayManagerOpen, viewingDescriptionTask]);
 
+  const loadAllData = async () => {
+    try {
+      const [tasksRes, holidaysRes, templatesRes, statusSetsRes, usersRes] = await Promise.all([
+        fetch('/api/tasks'),
+        fetch('/api/holidays'),
+        fetch('/api/templates'),
+        fetch('/api/status-sets'),
+        fetch('/api/users')
+      ]);
+      const [tasksData, holidaysData, templatesData, statusSetsData, usersData] = await Promise.all([
+        tasksRes.json(),
+        holidaysRes.json(),
+        templatesRes.json(),
+        statusSetsRes.json(),
+        usersRes.json()
+      ]);
+      setTasks(tasksData);
+      setHolidays(holidaysData);
+      setTemplates(templatesData);
+      setStatusSets(statusSetsData);
+      setUsers(usersData);
+    } catch (err) {
+      console.error('Failed to load data:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // Persistence
   useEffect(() => {
-    const loadData = async () => {
+    const init = async () => {
       try {
-        const [tasksRes, holidaysRes, templatesRes, statusSetsRes] = await Promise.all([
-          fetch('/api/tasks'),
-          fetch('/api/holidays'),
-          fetch('/api/templates'),
-          fetch('/api/status-sets')
-        ]);
-        const [tasksData, holidaysData, templatesData, statusSetsData] = await Promise.all([
-          tasksRes.json(),
-          holidaysRes.json(),
-          templatesRes.json(),
-          statusSetsRes.json()
-        ]);
-        setTasks(tasksData);
-        setHolidays(holidaysData);
-        setTemplates(templatesData);
-        setStatusSets(statusSetsData);
+        const configRes = await fetch('/api/config');
+        const config = await configRes.json();
+        setDataDir(config.dataDir);
+        setDefaultDataDir(config.defaultDataDir);
+        setDataDirInput(config.dataDir);
       } catch (err) {
-        console.error('Failed to load data:', err);
-      } finally {
-        setLoading(false);
+        console.error('Failed to load config:', err);
       }
+      await loadAllData();
     };
-    loadData();
+    init();
   }, []);
 
   const saveTasks = async (newTasks: Task[]) => {
@@ -1743,6 +1890,22 @@ export default function App() {
     }
   };
 
+  const saveUsers = async (newUsers: User[]) => {
+    try {
+      await fetch('/api/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newUsers)
+      });
+    } catch (err) {
+      console.error('Failed to save users:', err);
+    }
+  };
+
+  useEffect(() => {
+    localStorage.setItem('ganttflow_current_user', currentUserId);
+  }, [currentUserId]);
+
   useEffect(() => {
     if (!loading) saveTasks(tasks);
   }, [tasks, loading]);
@@ -1758,6 +1921,10 @@ export default function App() {
   useEffect(() => {
     if (!loading) saveStatusSets(statusSets);
   }, [statusSets, loading]);
+
+  useEffect(() => {
+    if (!loading) saveUsers(users);
+  }, [users, loading]);
 
   const hierarchicalTasks = useMemo(() => {
     const startM = startOfMonth(currentMonth);
@@ -1894,6 +2061,14 @@ export default function App() {
 
     return getEntries(null, 0);
   }, [tasks, collapsedIds, currentMonth, holidays]);
+
+  const filteredHierarchicalTasks = useMemo((): { task: Task; instance: any; level: number; idHash: string }[] => {
+    if (!ganttUserFilter) return hierarchicalTasks;
+    return hierarchicalTasks.filter((entry: { task: Task; instance: any; level: number; idHash: string }) => (entry.task.assigneeId || '') === ganttUserFilter);
+  }, [hierarchicalTasks, ganttUserFilter]);
+
+  const recurringTasks = useMemo(() => tasks.filter((task: Task) => task.recurrence.type !== 'none'), [tasks]);
+  const indefiniteTasks = useMemo(() => tasks.filter((task: Task) => task.isIndefinite), [tasks]);
 
   // Gantt Chart Calculations
   const timelineDates = useMemo(() => {
@@ -2252,10 +2427,16 @@ export default function App() {
             {theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />}
           </button>
         </div>
-        <div className="nav-item active flex items-center gap-3 px-5 py-3 text-sm text-accent bg-accent-soft border-l-3 border-accent cursor-pointer">
+        <div
+          onClick={() => setViewMode('list')}
+          className={cn("nav-item flex items-center gap-3 px-5 py-3 text-sm cursor-pointer", viewMode === 'list' ? "text-accent bg-accent-soft border-l-3 border-accent" : "text-text-secondary hover:text-text-primary")}
+        >
           <Calendar size={16} /> <span>{t.projectBoard}</span>
         </div>
-        <div className="nav-item flex items-center gap-3 px-5 py-3 text-sm text-text-secondary hover:text-text-primary cursor-pointer">
+        <div
+          onClick={() => setViewMode('gantt')}
+          className={cn("nav-item flex items-center gap-3 px-5 py-3 text-sm cursor-pointer", viewMode === 'gantt' ? "text-accent bg-accent-soft border-l-3 border-accent" : "text-text-secondary hover:text-text-primary")}
+        >
           <List size={16} /> <span>{t.schedule}</span>
         </div>
         
@@ -2268,20 +2449,57 @@ export default function App() {
         >
           <Settings size={14} /> <span>{t.templateManage}</span>
         </button>
-        <button 
+        <button
           onClick={() => setIsStatusManagerOpen(true)}
           className="flex items-center gap-3 w-full px-5 py-3 text-xs text-text-secondary hover:text-text-primary transition-colors"
         >
           <Settings size={14} /> <span>{t.statusManage}</span>
         </button>
+        <button
+          onClick={() => setIsUserManagerOpen(true)}
+          className="flex items-center gap-3 w-full px-5 py-3 text-xs text-text-secondary hover:text-text-primary transition-colors"
+        >
+          <Settings size={14} /> <span>{t.userManage}</span>
+        </button>
 
         <div className="mt-auto border-t border-border p-4">
-          <button 
+          <button
             onClick={() => setIsHolidayManagerOpen(true)}
             className="flex items-center gap-3 w-full p-2 text-xs text-text-secondary hover:text-text-primary transition-colors"
           >
             <Settings size={14} /> <span>{t.calendarSettings}</span>
           </button>
+          <button
+            onClick={() => { setDataDirInput(dataDir); setIsDataDirOpen(true); }}
+            className="flex items-center gap-3 w-full p-2 text-xs text-text-secondary hover:text-text-primary transition-colors"
+          >
+            <Settings size={14} /> <span>{t.dataFolderSettings}</span>
+          </button>
+
+          {users.length > 0 && (
+            <div className="mt-3 pt-3 border-t border-border">
+              <p className="text-[9px] uppercase tracking-widest text-text-secondary opacity-50 font-bold mb-2">{t.myUser}</p>
+              <select
+                value={currentUserId}
+                onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setCurrentUserId(e.target.value)}
+                className="w-full bg-bg border border-border rounded-lg px-2 py-1.5 text-[10px] text-text-primary focus:outline-none focus:border-accent appearance-none cursor-pointer"
+              >
+                <option value="">{t.unassigned}</option>
+                {users.map((u: User) => (
+                  <option key={u.id} value={u.id}>{u.name}</option>
+                ))}
+              </select>
+              {currentUserId && (() => {
+                const me = users.find((u: User) => u.id === currentUserId);
+                return me ? (
+                  <div className="flex items-center gap-2 mt-2">
+                    <div className="w-3 h-3 rounded-full" style={{ backgroundColor: me.color || '#6366f1' }} />
+                    <span className="text-[10px] text-accent font-bold">{me.name}</span>
+                  </div>
+                ) : null;
+              })()}
+            </div>
+          )}
         </div>
       </aside>
 
@@ -2289,8 +2507,7 @@ export default function App() {
         {/* Header */}
         <header className="flex h-[60px] items-center justify-between px-8 border-b border-border bg-bg">
           <div>
-            <h1 className="text-lg font-bold">2026 {t.projectFlow}</h1>
-            <p className="text-[11px] text-text-secondary">proto type lanch</p>
+
           </div>
           
           <div className="flex items-center gap-6">
@@ -2298,11 +2515,7 @@ export default function App() {
               {t.inProgress}: {tasks.length}
             </div>
             <div className="flex items-center gap-2">
-              <div className="flex bg-surface p-1 rounded-md border border-border">
-                <button className="px-3 py-1 text-[11px] rounded transition-colors text-text-secondary hover:text-text-primary">{t.listView}</button>
-                <button className="px-3 py-1 text-[11px] rounded bg-border text-text-primary">{t.ganttView}</button>
-              </div>
-              <button 
+              <button
                 onClick={() => { setEditingTask(null); setIsFormOpen(true); }}
                 className="bg-accent text-text-on-accent px-4 py-2 hover:brightness-110 transition-all text-[11px] font-bold uppercase tracking-wider rounded"
               >
@@ -2314,11 +2527,107 @@ export default function App() {
 
         {/* Workspace */}
         <div className="flex-1 flex overflow-hidden">
+          {viewMode === 'list' && (
+            <div className="flex-1 overflow-y-auto p-8 space-y-10">
+              {/* Recurring Tasks Section */}
+              <section>
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-1 h-5 bg-accent rounded-full" />
+                  <h2 className="text-[11px] font-black uppercase tracking-widest text-text-secondary">{t.recurringTaskList}</h2>
+                  <span className="ml-1 bg-accent/10 text-accent text-[10px] font-bold px-2 py-0.5 rounded-full">{recurringTasks.length}</span>
+                </div>
+                {recurringTasks.length === 0 ? (
+                  <p className="text-[11px] text-text-secondary opacity-50 pl-4">{t.noRecurringTasks}</p>
+                ) : (
+                  <div className="space-y-2">
+                    {recurringTasks.map(task => {
+                      const dayNames = ['日', '月', '火', '水', '木', '金', '土'];
+                      const recInfo = task.recurrence.type === 'weekly'
+                        ? `毎週 ${(task.recurrence.weeklyDays || []).map(d => dayNames[d]).join('・')}`
+                        : task.recurrence.type === 'monthly'
+                          ? `${task.recurrence.interval && task.recurrence.interval > 1 ? `${task.recurrence.interval}ヶ月ごと` : '毎月'}`
+                          : '';
+                      return (
+                        <div key={task.id} className="flex items-center gap-4 px-4 py-3 bg-surface border border-border rounded-lg hover:border-accent/30 transition-colors group">
+                          <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: task.color || 'var(--accent)' }} />
+                          <span className="flex-1 text-[13px] font-semibold text-text-primary truncate">{task.title}</span>
+                          <span className="text-[11px] text-accent bg-accent/10 px-2 py-0.5 rounded font-medium flex-shrink-0">{recInfo}</span>
+                          <span className="text-[10px] text-text-secondary flex-shrink-0">{task.leadTime}日</span>
+                          <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button
+                              onClick={() => { setEditingTask(task); setEditingInstanceDate(null); setIsFormOpen(true); }}
+                              className="p-1.5 hover:bg-accent/10 rounded text-text-secondary hover:text-accent transition-colors"
+                            ><Edit3 size={12} /></button>
+                            <button
+                              onClick={() => deleteTask(task.id)}
+                              className="p-1.5 hover:bg-red-500/10 rounded text-text-secondary hover:text-red-400 transition-colors"
+                            ><Trash2 size={12} /></button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </section>
+
+              {/* Indefinite Tasks Section */}
+              <section>
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-1 h-5 bg-accent rounded-full" />
+                  <h2 className="text-[11px] font-black uppercase tracking-widest text-text-secondary">{t.indefiniteTaskList}</h2>
+                  <span className="ml-1 bg-accent/10 text-accent text-[10px] font-bold px-2 py-0.5 rounded-full">{indefiniteTasks.length}</span>
+                </div>
+                {indefiniteTasks.length === 0 ? (
+                  <p className="text-[11px] text-text-secondary opacity-50 pl-4">{t.noIndefiniteTasks}</p>
+                ) : (
+                  <div className="space-y-2">
+                    {indefiniteTasks.map(task => (
+                      <div key={task.id} className="flex items-center gap-4 px-4 py-3 bg-surface border border-border rounded-lg hover:border-accent/30 transition-colors group">
+                        <InfinityIcon size={14} className="text-accent flex-shrink-0" />
+                        <span className="flex-1 text-[13px] font-semibold text-text-primary truncate">{task.title}</span>
+                        <span className="text-[11px] text-text-secondary flex-shrink-0">{task.leadTime}日</span>
+                        <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button
+                            onClick={() => { setEditingTask(task); setEditingInstanceDate(null); setIsFormOpen(true); }}
+                            className="p-1.5 hover:bg-accent/10 rounded text-text-secondary hover:text-accent transition-colors"
+                          ><Edit3 size={12} /></button>
+                          <button
+                            onClick={() => deleteTask(task.id)}
+                            className="p-1.5 hover:bg-red-500/10 rounded text-text-secondary hover:text-red-400 transition-colors"
+                          ><Trash2 size={12} /></button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
+            </div>
+          )}
+          {viewMode === 'gantt' && <>
           {/* Month Stepper - integrated into the top of the timeline area instead of header for better UX */}
-          
+
           {/* Task List Pane */}
           <section className="w-80 border-r border-border flex flex-col bg-sidebar/30">
-            <div className="flex flex-col bg-sidebar border-b border-border h-20">
+            <div className="flex flex-col bg-sidebar border-b border-border" style={{ height: users.length > 0 ? '120px' : '80px' }}>
+              {users.length > 0 && (
+                <div className="h-10 border-b border-border/50 flex items-center gap-1 px-3">
+                  <button
+                    onClick={() => setGanttUserFilter('')}
+                    className={cn("px-3 py-1 rounded text-[11px] font-bold transition-colors", ganttUserFilter === '' ? "bg-accent text-text-on-accent" : "text-text-secondary hover:text-text-primary")}
+                  >ALL</button>
+                  {users.map((u: User) => (
+                    <button
+                      key={u.id}
+                      onClick={() => setGanttUserFilter(u.id)}
+                      className={cn("flex items-center gap-1.5 px-3 py-1 rounded text-[11px] font-bold transition-colors", ganttUserFilter === u.id ? "text-text-on-accent" : "text-text-secondary hover:text-text-primary")}
+                      style={ganttUserFilter === u.id ? { backgroundColor: u.color || '#6366f1' } : {}}
+                    >
+                      <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: u.color || '#6366f1' }} />
+                      {u.name}
+                    </button>
+                  ))}
+                </div>
+              )}
               <div className="h-10 border-b border-border/50 flex items-center px-4">
                 <span className="text-[11px] font-bold text-text-secondary uppercase">{t.taskNameSet}</span>
                 <span className="ml-auto text-[11px] font-bold text-text-secondary uppercase pr-2">{t.leadTime}</span>
@@ -2353,13 +2662,14 @@ export default function App() {
               onScroll={handleScroll}
               className="flex-1 overflow-y-auto scrollbar-hide"
             >
-              {hierarchicalTasks.map(({ task, instance, level, idHash }) => (
-                <TaskRow 
-                  key={idHash} 
-                  task={task} 
-                  level={level} 
+              {filteredHierarchicalTasks.map(({ task, instance, level, idHash }) => (
+                <TaskRow
+                  key={idHash}
+                  task={task}
+                  level={level}
                   isExpanded={!collapsedIds.has(idHash) && tasks.some((t: Task) => t.parentId === task.id)}
                   statusSets={statusSets}
+                  users={users}
                   hasChildren={tasks.some(t => t.parentId === task.id)}
                   instanceDate={instance.originalDate}
                   onToggle={() => toggleExpand(idHash)}
@@ -2461,7 +2771,7 @@ export default function App() {
 
                 {/* Task Bars */}
                 <div className="relative z-0">
-                  {hierarchicalTasks.map(({ task, instance, idHash }) => {
+                  {filteredHierarchicalTasks.map(({ task, instance, idHash }) => {
                     const startOfMonthView = startOfMonth(currentMonth);
                     const endOfMonthView = endOfMonth(currentMonth);
 
@@ -2614,6 +2924,19 @@ export default function App() {
                                         <InfinityIcon size={12} className="text-black/60" />
                                       </div>
                                     )}
+                                    {(() => {
+                                      const instanceAssigneeId = (instance?.originalDate && task.overrides?.[instance.originalDate] !== undefined)
+                                        ? (task.overrides![instance.originalDate].assigneeId ?? task.assigneeId)
+                                        : task.assigneeId;
+                                      const ganttAssignee = users.find((u: User) => u.id === instanceAssigneeId);
+                                      return ganttAssignee ? (
+                                        <div
+                                          className="flex-shrink-0 w-4 h-4 rounded-full border border-black/20"
+                                          style={{ backgroundColor: ganttAssignee.color || '#6366f1' }}
+                                          title={ganttAssignee.name}
+                                        />
+                                      ) : null;
+                                    })()}
                                   </div>
                                 )}
                                 {hasChildren && (
@@ -2635,8 +2958,9 @@ export default function App() {
               </div>
             </div>
           </section>
+          </>}
         </div>
-        
+
         {/* Footer */}
         <footer className="h-10 bg-sidebar border-t border-border flex items-center px-6 gap-6 text-[10px] text-text-secondary uppercase tracking-[0.05em] font-medium transition-colors">
           <div className="flex items-center gap-2">
@@ -2654,6 +2978,13 @@ export default function App() {
             statusSets={statusSets}
             onSave={setStatusSets}
             onClose={() => setIsStatusManagerOpen(false)}
+          />
+        )}
+        {isUserManagerOpen && (
+          <UserManager
+            users={users}
+            onSave={(updated: User[]) => { setUsers(updated); fetch('/api/users', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(updated) }); }}
+            onClose={() => setIsUserManagerOpen(false)}
           />
         )}
         {editChoiceTarget && (
@@ -2916,6 +3247,7 @@ export default function App() {
                       baseType: isIndefinite ? 'start-date' : manualBaseType,
                       isIndefinite,
                       description,
+                      assigneeId: formAssigneeId || undefined,
                       recurrence: isIndefinite ? { type: 'none' } : {
                         type: recType,
                         weeklyDays: recType === 'weekly' ? weeklyDays : [],
@@ -2988,6 +3320,22 @@ export default function App() {
                     />
                   )}
                 </div>
+
+                {users.length > 0 && (
+                  <div className="flex items-center gap-6">
+                    <label className="w-32 flex-shrink-0 text-[10px] font-bold uppercase text-text-secondary tracking-widest">{t.assignee}</label>
+                    <select
+                      value={formAssigneeId}
+                      onChange={(e) => setFormAssigneeId(e.target.value)}
+                      className="flex-1 bg-bg border border-border rounded-lg px-4 py-3 focus:outline-none focus:border-accent text-text-primary transition-colors cursor-pointer appearance-none"
+                    >
+                      <option value="">{t.unassigned}</option>
+                      {users.map((u: User) => (
+                        <option key={u.id} value={u.id}>{u.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
 
                 <div className="flex items-center gap-6">
                   <label className="w-32 flex-shrink-0 text-[10px] font-bold uppercase text-text-secondary tracking-widest">{t.indefiniteTask}</label>
@@ -3212,6 +3560,50 @@ export default function App() {
                 <button type="submit" className="bg-accent text-black p-3 rounded-lg text-xs font-black uppercase tracking-widest">{t.registerDate}</button>
               </form>
 
+              <div className="mb-6">
+                <p className="text-[10px] text-text-secondary mb-2">{t.importHolidayCsvHint}</p>
+                <label className="flex items-center gap-2 w-full cursor-pointer bg-bg border border-border rounded-lg px-4 py-3 text-xs text-text-secondary hover:border-accent hover:text-accent transition-colors">
+                  <Upload size={13} />
+                  <span>{t.importHolidayCsv}</span>
+                  <input
+                    type="file"
+                    accept=".csv"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      const reader = new FileReader();
+                      reader.onload = (ev) => {
+                        try {
+                          const text = ev.target?.result as string;
+                          const lines = text.split(/\r?\n/).filter(l => l.trim());
+                          const parsed: Holiday[] = [];
+                          for (const line of lines) {
+                            const cols = line.split(',');
+                            const rawDate = cols[0]?.trim().replace(/"/g, '');
+                            const name = cols[1]?.trim().replace(/"/g, '');
+                            if (!rawDate || !name || isNaN(Date.parse(rawDate))) continue;
+                            const d = new Date(rawDate);
+                            if (isNaN(d.getTime())) continue;
+                            const dateStr = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+                            parsed.push({ id: generateId(), date: dateStr, name });
+                          }
+                          setHolidays(prev => {
+                            const existing = new Set(prev.map(h => h.date));
+                            const added = parsed.filter(p => !existing.has(p.date));
+                            return [...prev, ...added];
+                          });
+                        } catch {
+                          alert(t.importHolidayCsvError);
+                        }
+                        e.target.value = '';
+                      };
+                      reader.readAsText(file, 'UTF-8');
+                    }}
+                  />
+                </label>
+              </div>
+
               <div className="max-h-72 overflow-y-auto rounded-lg border border-border bg-bg/50">
                 {holidays.length === 0 && <p className="p-8 text-center text-xs text-text-secondary opacity-50 uppercase tracking-widest font-bold">{t.noHolidays}</p>}
                 <div className="divide-y divide-border">
@@ -3246,13 +3638,98 @@ export default function App() {
       </AnimatePresence>
 
       {isTemplateManagerOpen && (
-        <TemplateManager 
+        <TemplateManager
           templates={templates}
           statusSets={statusSets}
           onSave={setTemplates}
           onClose={() => setIsTemplateManagerOpen(false)}
         />
       )}
+
+      <AnimatePresence>
+        {isDataDirOpen && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="w-full max-w-lg bg-surface border border-border rounded-xl shadow-2xl p-10"
+            >
+              <h2 className="text-xl font-bold mb-2 text-text-primary">{t.dataFolderSettings}</h2>
+              <p className="text-xs text-text-secondary mb-6">
+                {t.dataFolderCurrent}: <span className="font-mono text-accent">{dataDir}</span>
+                {dataDir === defaultDataDir && <span className="ml-2 text-text-secondary opacity-60">({t.dataFolderDefault})</span>}
+              </p>
+              <div className="flex flex-col gap-4">
+                <input
+                  type="text"
+                  value={dataDirInput}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setDataDirInput(e.target.value)}
+                  placeholder={t.dataFolderPathPlaceholder}
+                  className="bg-bg border border-border rounded-lg p-3 text-xs text-text-primary font-mono focus:outline-none focus:border-accent"
+                />
+                <button
+                  onClick={async () => {
+                    const path = dataDirInput.trim();
+                    if (!path) return;
+                    try {
+                      const res = await fetch('/api/config', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ dataDir: path })
+                      });
+                      const data = await res.json();
+                      if (data.success) {
+                        setDataDir(data.dataDir);
+                        setIsDataDirOpen(false);
+                        setLoading(true);
+                        await loadAllData();
+                      }
+                    } catch (err) {
+                      console.error('Failed to save config:', err);
+                    }
+                  }}
+                  className="bg-accent text-black p-3 rounded-lg text-xs font-black uppercase tracking-widest"
+                >
+                  {t.dataFolderSave}
+                </button>
+                {dataDir !== defaultDataDir && (
+                  <button
+                    onClick={async () => {
+                      try {
+                        const res = await fetch('/api/config', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ dataDir: defaultDataDir })
+                        });
+                        const data = await res.json();
+                        if (data.success) {
+                          setDataDir(data.dataDir);
+                          setDataDirInput(data.dataDir);
+                          setIsDataDirOpen(false);
+                          setLoading(true);
+                          await loadAllData();
+                        }
+                      } catch (err) {
+                        console.error('Failed to reset config:', err);
+                      }
+                    }}
+                    className="bg-border text-text-secondary p-3 rounded-lg text-xs font-black uppercase tracking-widest hover:brightness-125 transition-all"
+                  >
+                    {t.dataFolderReset}
+                  </button>
+                )}
+                <button
+                  onClick={() => setIsDataDirOpen(false)}
+                  className="bg-border text-text-primary p-3 rounded-lg text-xs font-black uppercase tracking-widest hover:brightness-125 transition-all"
+                >
+                  {t.cancel}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

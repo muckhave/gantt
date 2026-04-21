@@ -13,6 +13,12 @@ export interface RecurrenceRule {
   holidayAdjustment?: HolidayAdjustment;
 }
 
+export interface User {
+  id: string;
+  name: string;
+  color?: string;
+}
+
 export interface Task {
   id: string;
   title: string;
@@ -33,6 +39,7 @@ export interface Task {
   overrides?: { [key: string]: Partial<Task> }; // Overrides for specific instances (key: original instance date YYYY-MM-DD)
   isIndefinite?: boolean;
   description?: string;
+  assigneeId?: string; // Reference to User.id
 }
 
 export interface TemplateItem {
