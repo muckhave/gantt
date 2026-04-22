@@ -148,7 +148,16 @@ export const translations = {
     importHolidayCsvHint: "内閣府形式（月日,名称）のCSVに対応",
     importHolidayCsvSuccess: "件の祝日をインポートしました",
     importHolidayCsvError: "CSVの解析に失敗しました",
-    importHolidayCsvDuplicate: "件追加（重複スキップ）"
+    importHolidayCsvDuplicate: "件追加（重複スキップ）",
+    projectManage: "プロジェクト管理",
+    projectName: "プロジェクト名",
+    noProjects: "プロジェクトが登録されていません",
+    project: "プロジェクト",
+    noProject: "プロジェクトなし",
+    projectMembers: "メンバー",
+    allProjects: "全プロジェクト",
+    projectFilter: "プロジェクトで絞り込み",
+    allUsers: "全ユーザー"
   }
 };
 

@@ -17,6 +17,7 @@ function getFiles() {
     templates: path.join(currentDataDir, "templates.csv"),
     statusSets: path.join(currentDataDir, "status_sets.json"),
     users: path.join(currentDataDir, "users.json"),
+    projects: path.join(currentDataDir, "projects.json"),
   };
 }
 
@@ -50,7 +51,7 @@ function parseJsonField(s: string): any {
 }
 
 function tasksToCsv(tasks: any[]): string {
-  const header = "id,title,parentId,leadTime,recurrenceType,weeklyDays,monthlyDays,isCompleted,color,createdAt,baseDate,statusId,statusSetId,offsetDays,offsetDirection,parentPoint,isIndefinite,description,baseType,overrides,exclusions,recurrenceInterval,recurrenceMonths,recurrenceHolidayAdjustment,assigneeId\n";
+  const header = "id,title,parentId,leadTime,recurrenceType,weeklyDays,monthlyDays,isCompleted,color,createdAt,baseDate,statusId,statusSetId,offsetDays,offsetDirection,parentPoint,isIndefinite,description,baseType,overrides,exclusions,recurrenceInterval,recurrenceMonths,recurrenceHolidayAdjustment,assigneeId,projectId\n";
   const rows = tasks.map(t => {
     return [
       t.id,
@@ -77,7 +78,8 @@ function tasksToCsv(tasks: any[]): string {
       t.recurrence?.interval ?? "",
       `"${(t.recurrence?.months || []).join('|')}"`,
       t.recurrence?.holidayAdjustment || "",
-      t.assigneeId || ""
+      t.assigneeId || "",
+      t.projectId || ""
     ].join(",");
   });
   return header + rows.join("\n");
@@ -134,7 +136,8 @@ function csvToTasks(csv: string): any[] {
       baseType: values[18] || undefined,
       overrides: overridesRaw && Object.keys(overridesRaw).length > 0 ? overridesRaw : undefined,
       exclusions: exclusionsRaw.length > 0 ? exclusionsRaw : undefined,
-      assigneeId: values[24] || undefined
+      assigneeId: values[24] || undefined,
+      projectId: values[25] || undefined
     };
   });
 }
@@ -307,6 +310,20 @@ async function startServer() {
 
   app.post("/api/status-sets", async (req, res) => {
     await fs.writeFile(getFiles().statusSets, JSON.stringify(req.body, null, 2), "utf-8");
+    res.json({ success: true });
+  });
+
+  app.get("/api/projects", async (req, res) => {
+    try {
+      const data = await fs.readFile(getFiles().projects, "utf-8");
+      res.json(JSON.parse(data));
+    } catch {
+      res.json([]);
+    }
+  });
+
+  app.post("/api/projects", async (req, res) => {
+    await fs.writeFile(getFiles().projects, JSON.stringify(req.body, null, 2), "utf-8");
     res.json({ success: true });
   });
 

@@ -19,6 +19,14 @@ export interface User {
   color?: string;
 }
 
+export interface Project {
+  id: string;
+  name: string;
+  color?: string;
+  memberIds: string[]; // References to User.id
+  createdAt: number;
+}
+
 export interface Task {
   id: string;
   title: string;
@@ -40,6 +48,7 @@ export interface Task {
   isIndefinite?: boolean;
   description?: string;
   assigneeId?: string; // Reference to User.id
+  projectId?: string; // Reference to Project.id
 }
 
 export interface TemplateItem {

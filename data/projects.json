@@ -1,0 +1,19 @@
+[
+  {
+    "id": "5hf4l4hma",
+    "name": "てすとPJ",
+    "color": "#3b82f6",
+    "memberIds": [
+      "0e5aor6i6",
+      "pjhclv4cr"
+    ],
+    "createdAt": 1776821321481
+  },
+  {
+    "id": "m54qeu0iz",
+    "name": "マネジャーPJ",
+    "color": "#3bf79f",
+    "memberIds": [],
+    "createdAt": 1776821337919
+  }
+]

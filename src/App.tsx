@@ -56,6 +56,7 @@ import {
   Status,
   StatusSet,
   User,
+  Project,
   subBusinessDays,
   addBusinessDays,
   calculateEndDate,
@@ -556,6 +557,17 @@ const StatusSetManager: React.FC<{
   );
 };
 
+// --- Helpers ---
+
+const getEffectiveProjectId = (task: Task, allTasks: Task[]): string | undefined => {
+  let current: Task | undefined = task;
+  while (current) {
+    if (!current.parentId) return current.projectId;
+    current = allTasks.find(t => t.id === current!.parentId);
+  }
+  return undefined;
+};
+
 // --- Components ---
 
 const TaskRow: React.FC<{
@@ -564,6 +576,8 @@ const TaskRow: React.FC<{
   isExpanded: boolean;
   statusSets: StatusSet[];
   users: User[];
+  projects: Project[];
+  allTasks: Task[];
   hasChildren: boolean;
   instanceDate?: string;
   onToggle: () => void;
@@ -578,6 +592,8 @@ const TaskRow: React.FC<{
   isExpanded,
   statusSets,
   users,
+  projects,
+  allTasks,
   hasChildren,
   instanceDate,
   onToggle,
@@ -594,13 +610,17 @@ const TaskRow: React.FC<{
     ? (task.overrides![instanceDate].assigneeId ?? task.assigneeId)
     : task.assigneeId;
   const assignee = users.find(u => u.id === effectiveAssigneeId);
+  const project = projects.find((p: Project) => p.id === getEffectiveProjectId(task, allTasks));
+
+  const projectBg = project ? project.color + '18' : undefined;
 
   return (
     <div
       className={cn(
         "group flex items-center h-[44px] border-b border-border hover:bg-white/5 transition-colors cursor-pointer",
-        task.parentId ? "" : "bg-white/5 border-l-2 border-l-accent/60"
+        task.parentId ? "" : "border-l-2 border-l-accent/60"
       )}
+      style={{ backgroundColor: projectBg }}
       onClick={() => { if (hasChildren) onToggle(); }}
     >
       <div style={{ width: `${level * 20}px` }} />
@@ -666,13 +686,15 @@ const TaskRow: React.FC<{
         )}
       </div>
       <div className="px-4 flex items-center gap-3 opacity-0 group-hover:opacity-100 transition-opacity">
-        <div className={cn(
-          "text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-tight",
-          task.recurrence.type !== 'none' ? "border border-accent/50 text-accent" : (task.isIndefinite ? "bg-accent/20 text-accent border border-accent/30" : "bg-border text-text-secondary")
-        )}>
-          {task.recurrence.type !== 'none' ? t.recurring : (task.isIndefinite ? t.indefinite : `${task.leadTime}d`)}
-        </div>
-        <button 
+        {(task.recurrence.type !== 'none' || task.isIndefinite) && (
+          <div className={cn(
+            "text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-tight",
+            task.recurrence.type !== 'none' ? "border border-accent/50 text-accent" : "bg-accent/20 text-accent border border-accent/30"
+          )}>
+            {task.recurrence.type !== 'none' ? t.recurring : t.indefinite}
+          </div>
+        )}
+        <button
           onClick={(e) => { 
             e.stopPropagation(); 
             if (task.recurrence.type !== 'none') {
@@ -1583,6 +1605,156 @@ const TemplateManager: React.FC<{
   );
 };
 
+const ProjectManager: React.FC<{
+  projects: Project[];
+  users: User[];
+  onSave: (projects: Project[]) => void;
+  onClose: () => void;
+}> = ({ projects, users, onSave, onClose }) => {
+  const [nameInput, setNameInput] = useState('');
+  const [colorInput, setColorInput] = useState('#3b82f6');
+  const [editingId, setEditingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
+
+  const handleAdd = () => {
+    if (!nameInput.trim()) return;
+    const newProject: Project = {
+      id: generateId(),
+      name: nameInput.trim(),
+      color: colorInput,
+      memberIds: [],
+      createdAt: Date.now()
+    };
+    onSave([...projects, newProject]);
+    setNameInput('');
+    setColorInput('#3b82f6');
+  };
+
+  const handleDelete = (id: string) => {
+    onSave(projects.filter(p => p.id !== id));
+    if (editingId === id) setEditingId(null);
+  };
+
+  const toggleMember = (projectId: string, userId: string) => {
+    onSave(projects.map(p => {
+      if (p.id !== projectId) return p;
+      const has = p.memberIds.includes(userId);
+      return { ...p, memberIds: has ? p.memberIds.filter(id => id !== userId) : [...p.memberIds, userId] };
+    }));
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-6 backdrop-blur-md bg-black/60">
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        exit={{ opacity: 0, scale: 0.95 }}
+        className="w-full max-w-lg bg-surface border border-border rounded-xl shadow-2xl p-10"
+      >
+        <div className="flex items-center justify-between mb-8">
+          <h2 className="text-xl font-bold text-text-primary">{t.projectManage}</h2>
+          <button onClick={onClose} className="p-2 text-text-secondary hover:text-text-primary transition-colors">
+            <X size={20} />
+          </button>
+        </div>
+
+        <div className="flex gap-3 mb-6">
+          <input
+            type="text"
+            value={nameInput}
+            onChange={e => setNameInput(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleAdd(); } }}
+            placeholder={t.projectName}
+            className="flex-1 bg-bg border border-border rounded-lg px-4 py-3 text-sm text-text-primary focus:outline-none focus:border-accent"
+          />
+          <input
+            type="color"
+            value={colorInput}
+            onChange={e => setColorInput(e.target.value)}
+            className="w-12 h-12 rounded-lg border border-border bg-bg cursor-pointer p-1"
+          />
+          <button
+            onClick={handleAdd}
+            className="px-4 py-2 bg-accent text-text-on-accent text-[11px] font-bold uppercase rounded-lg hover:brightness-110"
+          >
+            <Plus size={16} />
+          </button>
+        </div>
+
+        <div className="max-h-80 overflow-y-auto rounded-lg border border-border bg-bg/50">
+          {projects.length === 0 && (
+            <p className="p-8 text-center text-xs text-text-secondary opacity-50 uppercase tracking-widest font-bold">{t.noProjects}</p>
+          )}
+          <div className="divide-y divide-border">
+            {projects.map(p => (
+              <div key={p.id} className="group">
+                <div className="p-4 flex items-center gap-3">
+                  <div className="w-4 h-4 rounded-full flex-shrink-0" style={{ backgroundColor: p.color || '#3b82f6' }} />
+                  <span className="flex-1 text-sm font-medium text-text-primary">{p.name}</span>
+                  <button
+                    onClick={() => setEditingId(editingId === p.id ? null : p.id)}
+                    className="text-text-secondary hover:text-accent p-1 text-[10px] font-bold uppercase tracking-widest opacity-0 group-hover:opacity-100 transition-opacity"
+                  >
+                    {t.projectMembers}
+                  </button>
+                  <button
+                    onClick={() => handleDelete(p.id)}
+                    className="text-text-secondary hover:text-red-400 p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+                {editingId === p.id && users.length > 0 && (
+                  <div className="px-4 pb-4 flex flex-wrap gap-2">
+                    {users.map(u => {
+                      const selected = p.memberIds.includes(u.id);
+                      return (
+                        <button
+                          key={u.id}
+                          onClick={() => toggleMember(p.id, u.id)}
+                          className={cn(
+                            "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-bold border transition-all",
+                            selected
+                              ? "border-transparent text-white"
+                              : "border-border text-text-secondary hover:text-text-primary"
+                          )}
+                          style={selected ? { backgroundColor: u.color || '#6366f1' } : {}}
+                        >
+                          <div className="w-2 h-2 rounded-full" style={{ backgroundColor: u.color || '#6366f1' }} />
+                          {u.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+                {editingId === p.id && users.length === 0 && (
+                  <p className="px-4 pb-4 text-[10px] text-text-secondary opacity-60">{t.noUsers}</p>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="mt-8">
+          <button
+            onClick={onClose}
+            className="w-full bg-border text-text-primary py-4 rounded-xl text-xs font-black uppercase tracking-widest hover:brightness-125 transition-all"
+          >
+            {t.returnToDashboard}
+          </button>
+        </div>
+      </motion.div>
+    </div>
+  );
+};
+
 const UserManager: React.FC<{
   users: User[];
   onSave: (users: User[]) => void;
@@ -1688,6 +1860,7 @@ export default function App() {
   const [templates, setTemplates] = useState<TaskTemplateSet[]>([]);
   const [statusSets, setStatusSets] = useState<StatusSet[]>([]);
   const [users, setUsers] = useState<User[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
   const [currentMonth, setCurrentMonth] = useState(new Date());
@@ -1695,6 +1868,7 @@ export default function App() {
   const [isHolidayManagerOpen, setIsHolidayManagerOpen] = useState(false);
   const [isStatusManagerOpen, setIsStatusManagerOpen] = useState(false);
   const [isUserManagerOpen, setIsUserManagerOpen] = useState(false);
+  const [isProjectManagerOpen, setIsProjectManagerOpen] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string>(() => {
     return localStorage.getItem('ganttflow_current_user') || '';
   });
@@ -1719,6 +1893,7 @@ export default function App() {
   
   const [viewMode, setViewMode] = useState<'gantt' | 'list'>('gantt');
   const [ganttUserFilter, setGanttUserFilter] = useState<string>(() => localStorage.getItem('ganttflow_current_user') || '');
+  const [ganttProjectFilter, setGanttProjectFilter] = useState<string>('');
   const [dragState, setDragState] = useState<DragState | null>(null);
   const [mousePos, setMousePos] = useState(0);
   const [pendingChange, setPendingChange] = useState<{ id: string; baseDate: string; leadTime: number; originalDate?: string } | null>(null);
@@ -1741,6 +1916,7 @@ export default function App() {
   const [isIndefinite, setIsIndefinite] = useState(false);
   const [description, setDescription] = useState('');
   const [formAssigneeId, setFormAssigneeId] = useState<string>('');
+  const [formProjectId, setFormProjectId] = useState<string>('');
   const [isPreviewMode, setIsPreviewMode] = useState(false);
   const [viewingDescriptionTask, setViewingDescriptionTask] = useState<Task | null>(null);
   const [isDataDirOpen, setIsDataDirOpen] = useState(false);
@@ -1762,6 +1938,7 @@ export default function App() {
       setIsIndefinite(editingTask.isIndefinite || false);
       setDescription(editingTask.description || '');
       setFormAssigneeId(editingTask.assigneeId || '');
+      setFormProjectId(editingTask.parentId ? '' : (editingTask.projectId || ''));
       setIsPreviewMode(false);
     } else {
       setRecType('none');
@@ -1776,6 +1953,7 @@ export default function App() {
       setIsIndefinite(false);
       setDescription('');
       setFormAssigneeId(currentUserId || '');
+      setFormProjectId('');
       setIsPreviewMode(false);
     }
   }, [editingTask, isFormOpen, currentUserId]);
@@ -1799,25 +1977,28 @@ export default function App() {
 
   const loadAllData = async () => {
     try {
-      const [tasksRes, holidaysRes, templatesRes, statusSetsRes, usersRes] = await Promise.all([
+      const [tasksRes, holidaysRes, templatesRes, statusSetsRes, usersRes, projectsRes] = await Promise.all([
         fetch('/api/tasks'),
         fetch('/api/holidays'),
         fetch('/api/templates'),
         fetch('/api/status-sets'),
-        fetch('/api/users')
+        fetch('/api/users'),
+        fetch('/api/projects')
       ]);
-      const [tasksData, holidaysData, templatesData, statusSetsData, usersData] = await Promise.all([
+      const [tasksData, holidaysData, templatesData, statusSetsData, usersData, projectsData] = await Promise.all([
         tasksRes.json(),
         holidaysRes.json(),
         templatesRes.json(),
         statusSetsRes.json(),
-        usersRes.json()
+        usersRes.json(),
+        projectsRes.json()
       ]);
       setTasks(tasksData);
       setHolidays(holidaysData);
       setTemplates(templatesData);
       setStatusSets(statusSetsData);
       setUsers(usersData);
+      setProjects(projectsData);
     } catch (err) {
       console.error('Failed to load data:', err);
     } finally {
@@ -1890,6 +2071,18 @@ export default function App() {
     }
   };
 
+  const saveProjects = async (newProjects: Project[]) => {
+    try {
+      await fetch('/api/projects', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newProjects)
+      });
+    } catch (err) {
+      console.error('Failed to save projects:', err);
+    }
+  };
+
   const saveUsers = async (newUsers: User[]) => {
     try {
       await fetch('/api/users', {
@@ -1925,6 +2118,10 @@ export default function App() {
   useEffect(() => {
     if (!loading) saveUsers(users);
   }, [users, loading]);
+
+  useEffect(() => {
+    if (!loading) saveProjects(projects);
+  }, [projects, loading]);
 
   const hierarchicalTasks = useMemo(() => {
     const startM = startOfMonth(currentMonth);
@@ -2063,12 +2260,35 @@ export default function App() {
   }, [tasks, collapsedIds, currentMonth, holidays]);
 
   const filteredHierarchicalTasks = useMemo((): { task: Task; instance: any; level: number; idHash: string }[] => {
-    if (!ganttUserFilter) return hierarchicalTasks;
-    return hierarchicalTasks.filter((entry: { task: Task; instance: any; level: number; idHash: string }) => (entry.task.assigneeId || '') === ganttUserFilter);
-  }, [hierarchicalTasks, ganttUserFilter]);
+    let result = hierarchicalTasks;
+    if (ganttUserFilter) {
+      result = result.filter((entry: { task: Task; instance: any; level: number; idHash: string }) => (entry.task.assigneeId || '') === ganttUserFilter);
+    }
+    if (ganttProjectFilter) {
+      result = result.filter((entry: { task: Task; instance: any; level: number; idHash: string }) => (getEffectiveProjectId(entry.task, tasks) || '') === ganttProjectFilter);
+    }
+    return result;
+  }, [hierarchicalTasks, ganttUserFilter, ganttProjectFilter]);
 
-  const recurringTasks = useMemo(() => tasks.filter((task: Task) => task.recurrence.type !== 'none'), [tasks]);
-  const indefiniteTasks = useMemo(() => tasks.filter((task: Task) => task.isIndefinite), [tasks]);
+  const inheritedFormProject = useMemo(() => {
+    if (!formParentId) return undefined;
+    const parentTask = tasks.find((t: Task) => t.id === formParentId);
+    if (!parentTask) return undefined;
+    return projects.find((p: Project) => p.id === getEffectiveProjectId(parentTask, tasks));
+  }, [formParentId, tasks, projects]);
+
+  const recurringTasks = useMemo(() => tasks.filter((task: Task) => {
+    if (task.recurrence.type === 'none') return false;
+    if (ganttUserFilter && (task.assigneeId || '') !== ganttUserFilter) return false;
+    if (ganttProjectFilter && (getEffectiveProjectId(task, tasks) || '') !== ganttProjectFilter) return false;
+    return true;
+  }), [tasks, ganttUserFilter, ganttProjectFilter]);
+  const indefiniteTasks = useMemo(() => tasks.filter((task: Task) => {
+    if (!task.isIndefinite) return false;
+    if (ganttUserFilter && (task.assigneeId || '') !== ganttUserFilter) return false;
+    if (ganttProjectFilter && (getEffectiveProjectId(task, tasks) || '') !== ganttProjectFilter) return false;
+    return true;
+  }), [tasks, ganttUserFilter, ganttProjectFilter]);
 
   // Gantt Chart Calculations
   const timelineDates = useMemo(() => {
@@ -2461,6 +2681,12 @@ export default function App() {
         >
           <Settings size={14} /> <span>{t.userManage}</span>
         </button>
+        <button
+          onClick={() => setIsProjectManagerOpen(true)}
+          className="flex items-center gap-3 w-full px-5 py-3 text-xs text-text-secondary hover:text-text-primary transition-colors"
+        >
+          <Settings size={14} /> <span>{t.projectManage}</span>
+        </button>
 
         <div className="mt-auto border-t border-border p-4">
           <button
@@ -2506,8 +2732,31 @@ export default function App() {
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
         {/* Header */}
         <header className="flex h-[60px] items-center justify-between px-8 border-b border-border bg-bg">
-          <div>
-
+          <div className="flex items-center gap-3">
+            {users.length > 0 && (
+              <select
+                value={ganttUserFilter}
+                onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setGanttUserFilter(e.target.value)}
+                className="bg-bg border border-border rounded-lg px-3 py-1.5 text-[11px] text-text-primary focus:outline-none focus:border-accent appearance-none cursor-pointer"
+              >
+                <option value="">{t.allUsers}</option>
+                {users.map((u: User) => (
+                  <option key={u.id} value={u.id}>{u.name}</option>
+                ))}
+              </select>
+            )}
+            {projects.length > 0 && (
+              <select
+                value={ganttProjectFilter}
+                onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setGanttProjectFilter(e.target.value)}
+                className="bg-bg border border-border rounded-lg px-3 py-1.5 text-[11px] text-text-primary focus:outline-none focus:border-accent appearance-none cursor-pointer"
+              >
+                <option value="">{t.allProjects}</option>
+                {projects.map((p: Project) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+            )}
           </div>
           
           <div className="flex items-center gap-6">
@@ -2547,10 +2796,17 @@ export default function App() {
                         : task.recurrence.type === 'monthly'
                           ? `${task.recurrence.interval && task.recurrence.interval > 1 ? `${task.recurrence.interval}ヶ月ごと` : '毎月'}`
                           : '';
+                      const taskProject = projects.find((p: Project) => p.id === getEffectiveProjectId(task, tasks));
                       return (
                         <div key={task.id} className="flex items-center gap-4 px-4 py-3 bg-surface border border-border rounded-lg hover:border-accent/30 transition-colors group">
                           <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: task.color || 'var(--accent)' }} />
                           <span className="flex-1 text-[13px] font-semibold text-text-primary truncate">{task.title}</span>
+                          {taskProject && (
+                            <span className="flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full border flex-shrink-0" style={{ borderColor: (taskProject.color || '#3b82f6') + '80', color: taskProject.color || '#3b82f6' }}>
+                              <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: taskProject.color || '#3b82f6' }} />
+                              {taskProject.name}
+                            </span>
+                          )}
                           <span className="text-[11px] text-accent bg-accent/10 px-2 py-0.5 rounded font-medium flex-shrink-0">{recInfo}</span>
                           <span className="text-[10px] text-text-secondary flex-shrink-0">{task.leadTime}日</span>
                           <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -2581,10 +2837,18 @@ export default function App() {
                   <p className="text-[11px] text-text-secondary opacity-50 pl-4">{t.noIndefiniteTasks}</p>
                 ) : (
                   <div className="space-y-2">
-                    {indefiniteTasks.map(task => (
+                    {indefiniteTasks.map(task => {
+                      const taskProject = projects.find((p: Project) => p.id === getEffectiveProjectId(task, tasks));
+                      return (
                       <div key={task.id} className="flex items-center gap-4 px-4 py-3 bg-surface border border-border rounded-lg hover:border-accent/30 transition-colors group">
                         <InfinityIcon size={14} className="text-accent flex-shrink-0" />
                         <span className="flex-1 text-[13px] font-semibold text-text-primary truncate">{task.title}</span>
+                        {taskProject && (
+                          <span className="flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full border flex-shrink-0" style={{ borderColor: (taskProject.color || '#3b82f6') + '80', color: taskProject.color || '#3b82f6' }}>
+                            <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: taskProject.color || '#3b82f6' }} />
+                            {taskProject.name}
+                          </span>
+                        )}
                         <span className="text-[11px] text-text-secondary flex-shrink-0">{task.leadTime}日</span>
                         <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                           <button
@@ -2597,7 +2861,8 @@ export default function App() {
                           ><Trash2 size={12} /></button>
                         </div>
                       </div>
-                    ))}
+                    );
+                    })}
                   </div>
                 )}
               </section>
@@ -2607,30 +2872,10 @@ export default function App() {
           {/* Month Stepper - integrated into the top of the timeline area instead of header for better UX */}
 
           {/* Task List Pane */}
-          <section className="w-80 border-r border-border flex flex-col bg-sidebar/30">
-            <div className="flex flex-col bg-sidebar border-b border-border" style={{ height: users.length > 0 ? '120px' : '80px' }}>
-              {users.length > 0 && (
-                <div className="h-10 border-b border-border/50 flex items-center gap-1 px-3">
-                  <button
-                    onClick={() => setGanttUserFilter('')}
-                    className={cn("px-3 py-1 rounded text-[11px] font-bold transition-colors", ganttUserFilter === '' ? "bg-accent text-text-on-accent" : "text-text-secondary hover:text-text-primary")}
-                  >ALL</button>
-                  {users.map((u: User) => (
-                    <button
-                      key={u.id}
-                      onClick={() => setGanttUserFilter(u.id)}
-                      className={cn("flex items-center gap-1.5 px-3 py-1 rounded text-[11px] font-bold transition-colors", ganttUserFilter === u.id ? "text-text-on-accent" : "text-text-secondary hover:text-text-primary")}
-                      style={ganttUserFilter === u.id ? { backgroundColor: u.color || '#6366f1' } : {}}
-                    >
-                      <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: u.color || '#6366f1' }} />
-                      {u.name}
-                    </button>
-                  ))}
-                </div>
-              )}
+          <section className="w-[420px] border-r border-border flex flex-col bg-sidebar/30">
+            <div className="flex flex-col bg-sidebar border-b border-border" style={{ height: '80px' }}>
               <div className="h-10 border-b border-border/50 flex items-center px-4">
                 <span className="text-[11px] font-bold text-text-secondary uppercase">{t.taskNameSet}</span>
-                <span className="ml-auto text-[11px] font-bold text-text-secondary uppercase pr-2">{t.leadTime}</span>
               </div>
               <div className="h-10 flex items-center px-4 bg-surface/30">
                 <button 
@@ -2670,6 +2915,8 @@ export default function App() {
                   isExpanded={!collapsedIds.has(idHash) && tasks.some((t: Task) => t.parentId === task.id)}
                   statusSets={statusSets}
                   users={users}
+                  projects={projects}
+                  allTasks={tasks}
                   hasChildren={tasks.some(t => t.parentId === task.id)}
                   instanceDate={instance.originalDate}
                   onToggle={() => toggleExpand(idHash)}
@@ -2704,7 +2951,7 @@ export default function App() {
               style={{ width: `${timelineDates.length * dayWidth}px` }}
             >
               {/* Timeline Header */}
-              <div className="flex-shrink-0 flex flex-col h-20 bg-sidebar border-b border-border sticky top-0 z-20">
+              <div className="flex-shrink-0 flex flex-col bg-sidebar border-b border-border sticky top-0 z-20" style={{ height: '80px' }}>
                 <div className="h-10 border-b border-border/50 flex items-center justify-center text-[10px] font-black uppercase tracking-widest text-text-secondary opacity-50">
                   {t.schedule}
                 </div>
@@ -2987,6 +3234,14 @@ export default function App() {
             onClose={() => setIsUserManagerOpen(false)}
           />
         )}
+        {isProjectManagerOpen && (
+          <ProjectManager
+            projects={projects}
+            users={users}
+            onSave={(updated: Project[]) => { setProjects(updated); fetch('/api/projects', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(updated) }); }}
+            onClose={() => setIsProjectManagerOpen(false)}
+          />
+        )}
         {editChoiceTarget && (
           <EditModeDialog 
             onSelect={(mode) => {
@@ -3248,6 +3503,7 @@ export default function App() {
                       isIndefinite,
                       description,
                       assigneeId: formAssigneeId || undefined,
+                      projectId: formParentId ? undefined : (formProjectId || undefined),
                       recurrence: isIndefinite ? { type: 'none' } : {
                         type: recType,
                         weeklyDays: recType === 'weekly' ? weeklyDays : [],
@@ -3257,8 +3513,10 @@ export default function App() {
                         holidayAdjustment: holidayAdjustment
                       }
                     };
-                    if (editingTask) handleUpdateTask(editingTask.id, data);
-                    else {
+                    if (editingTask) {
+                      handleUpdateTask(editingTask.id, data);
+                      setIsFormOpen(false);
+                    } else {
                       handleCreateTask(data);
                       setIsFormOpen(false);
                     }
@@ -3336,6 +3594,28 @@ export default function App() {
                     </select>
                   </div>
                 )}
+
+                <div className="flex items-center gap-6">
+                  <label className="w-32 flex-shrink-0 text-[10px] font-bold uppercase text-text-secondary tracking-widest">{t.project}</label>
+                  {formParentId && (
+                    <span className="flex-1 text-[13px] text-text-secondary flex items-center gap-1.5">
+                      {inheritedFormProject && <span className="w-2 h-2 rounded-full inline-block flex-shrink-0" style={{ backgroundColor: inheritedFormProject.color || '#3b82f6' }} />}
+                      {inheritedFormProject ? inheritedFormProject.name : t.noProject}
+                    </span>
+                  )}
+                  {!formParentId && (
+                    <select
+                      value={formProjectId}
+                      onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setFormProjectId(e.target.value)}
+                      className="flex-1 bg-bg border border-border rounded-lg px-4 py-3 focus:outline-none focus:border-accent text-text-primary transition-colors cursor-pointer appearance-none"
+                    >
+                      <option value="">{t.noProject}</option>
+                      {projects.map((p: Project) => (
+                        <option key={p.id} value={p.id}>{p.name}</option>
+                      ))}
+                    </select>
+                  )}
+                </div>
 
                 <div className="flex items-center gap-6">
                   <label className="w-32 flex-shrink-0 text-[10px] font-bold uppercase text-text-secondary tracking-widest">{t.indefiniteTask}</label>
