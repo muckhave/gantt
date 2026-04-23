@@ -1,5 +1,9 @@
 id,title,parentId,leadTime,recurrenceType,weeklyDays,monthlyDays,isCompleted,color,createdAt,baseDate,statusId,statusSetId,offsetDays,offsetDirection,parentPoint,isIndefinite,description,baseType,overrides,exclusions,recurrenceInterval,recurrenceMonths,recurrenceHolidayAdjustment,assigneeId,projectId
-dkm6j5ici,"New Template",,0,monthly,"","18",false,#475569,1776866859883,2026-05-18,s1,1,,,,false,"",deadline,"{}","",1,"",next,,
-3tdhwqcql,"Subtask",dkm6j5ici,3,none,"","",false,#3b82f6,1776866859883,2026-05-18,s1,1,0,before,deadline,false,"",deadline,"{""2026-04-20"":{""baseDate"":""2026-05-19"",""leadTime"":4},""2026-05-18"":{""baseDate"":""2026-05-18"",""leadTime"":2}}","",,"",,,
-xj4q3qam4,"Subtask",dkm6j5ici,3,none,"","",false,#f59e0b,1776866859883,2026-05-13,s1,1,3,before,deadline,false,"",deadline,"{""2026-04-20"":{""baseDate"":""2026-05-15"",""leadTime"":4,""offsetDays"":4,""offsetDirection"":""before""},""2026-05-18"":{""baseDate"":""2026-05-13"",""leadTime"":3}}","",,"",,,
-4y4pni9lh,"Subtask",dkm6j5ici,3,none,"","",false,#3b82f6,1776866859883,2026-05-08,s1,1,6,before,deadline,false,"",deadline,"{""2026-04-20"":{""baseDate"":""2026-05-08"",""leadTime"":4,""offsetDays"":5,""offsetDirection"":""before""}}","",,"",,,
+1kcqh24j8,"New Template",,0,none,"","",false,#ef4444,1776904754916,2026-04-15,s1,1,,,,false,"",deadline,"{}","",1,"",next,,
+t9b7e34o1,"Subtask",1kcqh24j8,3,none,"","",false,#3b82f6,1776904754916,2026-04-15,s1,1,0,before,deadline,false,"",deadline,"{}","",,"",,,
+ke8afuegp,"Subtask",1kcqh24j8,3,none,"","",false,#3b82f6,1776904754916,2026-04-10,s1,1,3,before,deadline,false,"",deadline,"{}","",,"",,,
+mpj91plqi,"Subtask",1kcqh24j8,3,none,"","",false,#8b5cf6,1776904754916,2026-04-07,s1,1,6,before,deadline,false,"",deadline,"{}","",,"",,,
+pzi1i7onk,"New Template",,0,monthly,"","18",false,#f59e0b,1776904783897,2026-05-18,s1,1,,,,false,"",deadline,"{}","",1,"",next,,
+gqqjhpncd,"Subtask",pzi1i7onk,3,none,"","",false,#475569,1776904783897,2026-05-18,s1,1,0,before,deadline,false,"",deadline,"{}","",,"",,,
+vhqtcg9nh,"Subtask",pzi1i7onk,3,none,"","",false,#f59e0b,1776904783897,2026-05-13,s1,1,3,before,deadline,false,"",deadline,"{""2026-06-18"":{""leadTime"":2,""offsetDays"":3,""offsetDirection"":""before""}}","",,"",,,
+ivblsfy70,"Subtask",pzi1i7onk,3,none,"","",false,#ef4444,1776904783897,2026-05-08,s1,1,6,before,deadline,false,"",deadline,"{""2026-06-18"":{""leadTime"":3,""offsetDays"":6,""offsetDirection"":""before""}}","",,"",,,

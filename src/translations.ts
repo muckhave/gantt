@@ -157,7 +157,12 @@ export const translations = {
     projectMembers: "メンバー",
     allProjects: "全プロジェクト",
     projectFilter: "プロジェクトで絞り込み",
-    allUsers: "全ユーザー"
+    allUsers: "全ユーザー",
+    confirmDeleteTask: "タスクを削除しますか？",
+    deleteCannotUndo: "この操作は取り消せません",
+    deleteTaskConfirm: "削除する",
+    deleteIndividualInstance: "この予定のみを削除",
+    deleteAllRecurring: "繰り返し全体を削除"
   }
 };
 

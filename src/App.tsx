@@ -180,6 +180,59 @@ const EditModeDialog: React.FC<{
   </div>
 );
 
+const DeleteConfirmDialog: React.FC<{
+  task: Task;
+  onDeleteAll: () => void;
+  onDeleteInstance: () => void;
+  onCancel: () => void;
+}> = ({ task, onDeleteAll, onDeleteInstance, onCancel }) => (
+  <div className="fixed inset-0 z-[110] flex items-center justify-center p-6 backdrop-blur-sm bg-black/40">
+    <motion.div
+      initial={{ opacity: 0, scale: 0.95, y: 10 }}
+      animate={{ opacity: 1, scale: 1, y: 0 }}
+      className="w-full max-w-sm bg-surface border border-border rounded-3xl shadow-2xl p-8"
+    >
+      <div className="w-12 h-12 bg-red-500/10 rounded-full flex items-center justify-center mx-auto mb-4">
+        <Trash2 className="text-red-400" size={24} />
+      </div>
+      <h3 className="text-lg font-bold text-text-primary mb-1 text-center">{t.confirmDeleteTask}</h3>
+      <p className="text-[11px] text-text-secondary text-center mb-2 uppercase tracking-widest font-bold">{task.title}</p>
+      <p className="text-[10px] text-red-400/70 text-center mb-6 uppercase tracking-widest font-bold">{t.deleteCannotUndo}</p>
+      <div className="flex flex-col gap-3">
+        {task.recurrence.type !== 'none' ? (
+          <>
+            <button
+              onClick={onDeleteInstance}
+              className="w-full bg-red-500/80 text-white py-4 rounded-xl text-[11px] font-bold uppercase shadow-lg active:scale-95 transition-all text-center"
+            >
+              {t.deleteIndividualInstance}
+            </button>
+            <button
+              onClick={onDeleteAll}
+              className="w-full bg-bg border border-red-500/40 text-red-400 py-4 rounded-xl text-[11px] font-bold uppercase hover:bg-red-500/10 active:scale-95 transition-all text-center"
+            >
+              {t.deleteAllRecurring}
+            </button>
+          </>
+        ) : (
+          <button
+            onClick={onDeleteAll}
+            className="w-full bg-red-500/80 text-white py-4 rounded-xl text-[11px] font-bold uppercase shadow-lg active:scale-95 transition-all text-center"
+          >
+            {t.deleteTaskConfirm}
+          </button>
+        )}
+        <button
+          onClick={onCancel}
+          className="w-full mt-2 text-[10px] uppercase font-bold text-text-secondary tracking-widest hover:text-text-primary transition-colors text-center"
+        >
+          {t.cancel}
+        </button>
+      </div>
+    </motion.div>
+  </div>
+);
+
 const DatePicker: React.FC<{
   value: string;
   onChange: (date: string) => void;
@@ -583,7 +636,7 @@ const TaskRow: React.FC<{
   hasChildren: boolean;
   instanceDate?: string;
   onToggle: () => void;
-  onDelete: (id: string) => void;
+  onDelete: (id: string, instanceDate?: string) => void;
   onComplete: (id: string, instanceDate?: string) => void;
   onEdit: (task: Task, originalDate?: string) => void;
   onUpdate: (id: string, data: Partial<Task>) => void;
@@ -709,8 +762,8 @@ const TaskRow: React.FC<{
         >
           <Settings size={14} />
         </button>
-        <button 
-          onClick={(e) => { e.stopPropagation(); onDelete(task.id); }}
+        <button
+          onClick={(e) => { e.stopPropagation(); onDelete(task.id, instanceDate); }}
           className="p-1 text-text-secondary hover:text-red-400"
         >
           <Trash2 size={14} />
@@ -1879,6 +1932,7 @@ export default function App() {
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [editingInstanceDate, setEditingInstanceDate] = useState<string | null>(null);
   const [editChoiceTarget, setEditChoiceTarget] = useState<{ task: Task; originalDate?: string } | null>(null);
+  const [pendingDeleteTask, setPendingDeleteTask] = useState<{ task: Task; instanceDate?: string } | null>(null);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('');
   const [templateDeadline, setTemplateDeadline] = useState<string>('');
   const [templateRecType, setTemplateRecType] = useState<RecurrenceType>('none');
@@ -2528,6 +2582,13 @@ export default function App() {
     setTasks(tasks.filter(t => t.id !== id && t.parentId !== id));
   };
 
+  const deleteTaskInstance = (id: string, instanceDate: string) => {
+    setTasks((prev: Task[]) => prev.map((t: Task) => {
+      if (t.id !== id) return t;
+      return { ...t, exclusions: [...(t.exclusions || []), instanceDate] };
+    }));
+  };
+
   const toggleComplete = (id: string, instanceDate?: string) => {
     setTasks((prev: Task[]) => prev.map((t: Task) => {
       if (t.id !== id) return t;
@@ -2976,7 +3037,10 @@ export default function App() {
                   hasChildren={tasks.some(t => t.parentId === task.id)}
                   instanceDate={instance.originalDate}
                   onToggle={() => toggleExpand(idHash)}
-                  onDelete={deleteTask}
+                  onDelete={(id: string, instanceDate?: string) => {
+                    const target = tasks.find((t: Task) => t.id === id);
+                    if (target) setPendingDeleteTask({ task: target, instanceDate });
+                  }}
                   onComplete={toggleComplete}
                   onEdit={(t: Task, originalDate?: string) => { 
                     if (t.recurrence.type !== 'none') {
@@ -3338,8 +3402,28 @@ export default function App() {
             onClose={() => setIsProjectManagerOpen(false)}
           />
         )}
+        {pendingDeleteTask && (
+          <DeleteConfirmDialog
+            task={pendingDeleteTask.task}
+            onDeleteAll={() => {
+              deleteTask(pendingDeleteTask.task.id);
+              setPendingDeleteTask(null);
+            }}
+            onDeleteInstance={() => {
+              const instanceDate = pendingDeleteTask.instanceDate;
+              if (instanceDate) {
+                deleteTaskInstance(pendingDeleteTask.task.id, instanceDate);
+              } else {
+                deleteTask(pendingDeleteTask.task.id);
+              }
+              setPendingDeleteTask(null);
+            }}
+            onCancel={() => setPendingDeleteTask(null)}
+          />
+        )}
+
         {editChoiceTarget && (
-          <EditModeDialog 
+          <EditModeDialog
             onSelect={(mode) => {
               const { task, originalDate } = editChoiceTarget;
               if (mode === 'individual') {
