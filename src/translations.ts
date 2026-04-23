@@ -1,7 +1,7 @@
 export const translations = {
   ja: {
     brand: "GanttChart",
-    projectBoard: "プロジェクトボード",
+    projectBoard: "タスクリスト",
     schedule: "スケジュール",
     taskSets: "タスクセット",
     standardFlow: "標準フロー",

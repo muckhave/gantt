@@ -73,10 +73,12 @@ const t = translations.ja;
 interface DragState {
   taskId: string;
   originalDate?: string;
-  type: 'move' | 'resize';
+  type: 'move' | 'resize-left' | 'resize-right';
   startX: number;
   initialBaseDate: string;
   initialLeadTime: number;
+  isDeadlineTask: boolean;
+  initialSignedOffset?: number; // signed offset for subtasks (positive=after, negative=before)
 }
 
 const ConfirmDialog: React.FC<{
@@ -1896,7 +1898,7 @@ export default function App() {
   const [ganttProjectFilter, setGanttProjectFilter] = useState<string>('');
   const [dragState, setDragState] = useState<DragState | null>(null);
   const [mousePos, setMousePos] = useState(0);
-  const [pendingChange, setPendingChange] = useState<{ id: string; baseDate: string; leadTime: number; originalDate?: string } | null>(null);
+  const [pendingChange, setPendingChange] = useState<{ id: string; baseDate: string; leadTime: number; originalDate?: string; offsetDays?: number; offsetDirection?: 'before' | 'after' } | null>(null);
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
@@ -2549,7 +2551,7 @@ export default function App() {
     const handleMouseUp = (e: MouseEvent) => {
       const diffX = e.clientX - dragState.startX;
       const daysDiff = Math.round(diffX / dayWidth);
-      
+
       if (daysDiff === 0) {
         setDragState(null);
         return;
@@ -2564,21 +2566,71 @@ export default function App() {
       let newBaseDate = task.baseDate || '';
       let newLeadTime = task.leadTime;
 
+      const shiftDate = (base: string, days: number) => {
+        const d = parseISO(base);
+        const next = days >= 0
+          ? addBusinessDays(d, days, holidays)
+          : subBusinessDays(d, Math.abs(days), holidays);
+        return format(next, 'yyyy-MM-dd');
+      };
+
+      let newSignedOffset = dragState.initialSignedOffset;
+      const isSubtask = newSignedOffset !== undefined;
+
       if (dragState.type === 'move') {
-        const currentStart = parseISO(dragState.initialBaseDate);
-        const nextStart = daysDiff >= 0 
-          ? addBusinessDays(currentStart, daysDiff, holidays)
-          : subBusinessDays(currentStart, Math.abs(daysDiff), holidays);
-        newBaseDate = format(nextStart, 'yyyy-MM-dd');
-      } else if (dragState.type === 'resize') {
-        newLeadTime = Math.max(1, dragState.initialLeadTime + daysDiff);
+        if (isSubtask) {
+          newSignedOffset = dragState.initialSignedOffset! + daysDiff;
+        } else {
+          newBaseDate = shiftDate(dragState.initialBaseDate, daysDiff);
+        }
+      } else if (dragState.type === 'resize-right') {
+        if (dragState.isDeadlineTask) {
+          // 締め切り起点: 右ドラッグ → 締め切り日を変更し、開始日は固定 → leadTimeも同量増やす
+          if (isSubtask) {
+            newSignedOffset = dragState.initialSignedOffset! + daysDiff;
+          } else {
+            newBaseDate = shiftDate(dragState.initialBaseDate, daysDiff);
+          }
+          newLeadTime = Math.max(1, dragState.initialLeadTime + daysDiff);
+        } else {
+          // 開始日起点: 右ドラッグ → リードタイムを変更
+          newLeadTime = Math.max(1, dragState.initialLeadTime + daysDiff);
+        }
+      } else if (dragState.type === 'resize-left') {
+        if (dragState.isDeadlineTask) {
+          // 締め切り起点: 左ドラッグ → リードタイムを変更（締め切りは固定）
+          newLeadTime = Math.max(1, dragState.initialLeadTime - daysDiff);
+        } else {
+          // 開始日起点: 左ドラッグ → 開始日を変更し、終了日は固定 → leadTimeも逆方向に調整
+          if (isSubtask) {
+            newSignedOffset = dragState.initialSignedOffset! + daysDiff;
+          } else {
+            newBaseDate = shiftDate(dragState.initialBaseDate, daysDiff);
+          }
+          newLeadTime = Math.max(1, dragState.initialLeadTime - daysDiff);
+        }
       }
 
-      setPendingChange({ 
-        id: task.id, 
-        baseDate: newBaseDate, 
+      // Convert signed offset back to (offsetDays, offsetDirection) for subtasks
+      let newOffsetDays: number | undefined;
+      let newOffsetDirection: 'before' | 'after' | undefined;
+      if (isSubtask && newSignedOffset !== undefined) {
+        if (newSignedOffset >= 0) {
+          newOffsetDays = newSignedOffset;
+          newOffsetDirection = 'after';
+        } else {
+          newOffsetDays = Math.abs(newSignedOffset);
+          newOffsetDirection = 'before';
+        }
+      }
+
+      setPendingChange({
+        id: task.id,
+        baseDate: newBaseDate,
         leadTime: newLeadTime,
-        originalDate: dragState.originalDate 
+        originalDate: dragState.originalDate,
+        offsetDays: newOffsetDays,
+        offsetDirection: newOffsetDirection,
       });
       setDragState(null);
     };
@@ -2598,14 +2650,18 @@ export default function App() {
 
       if (pendingChange.originalDate) {
         const overrides = { ...(t.overrides || {}) };
-        overrides[pendingChange.originalDate] = {
-          ...overrides[pendingChange.originalDate],
-          baseDate: pendingChange.baseDate,
-          leadTime: pendingChange.leadTime
-        };
+        const existing = overrides[pendingChange.originalDate] || {};
+        const update: Partial<Task> = { ...existing, leadTime: pendingChange.leadTime };
+        if (pendingChange.offsetDays !== undefined) {
+          update.offsetDays = pendingChange.offsetDays;
+          update.offsetDirection = pendingChange.offsetDirection;
+        } else {
+          update.baseDate = pendingChange.baseDate;
+        }
+        overrides[pendingChange.originalDate] = update;
         return { ...t, overrides };
       }
-      
+
       return { ...t, baseDate: pendingChange.baseDate, leadTime: pendingChange.leadTime };
     }));
     setPendingChange(null);
@@ -2648,16 +2704,16 @@ export default function App() {
           </button>
         </div>
         <div
-          onClick={() => setViewMode('list')}
-          className={cn("nav-item flex items-center gap-3 px-5 py-3 text-sm cursor-pointer", viewMode === 'list' ? "text-accent bg-accent-soft border-l-3 border-accent" : "text-text-secondary hover:text-text-primary")}
-        >
-          <Calendar size={16} /> <span>{t.projectBoard}</span>
-        </div>
-        <div
           onClick={() => setViewMode('gantt')}
           className={cn("nav-item flex items-center gap-3 px-5 py-3 text-sm cursor-pointer", viewMode === 'gantt' ? "text-accent bg-accent-soft border-l-3 border-accent" : "text-text-secondary hover:text-text-primary")}
         >
           <List size={16} /> <span>{t.schedule}</span>
+        </div>
+        <div
+          onClick={() => setViewMode('list')}
+          className={cn("nav-item flex items-center gap-3 px-5 py-3 text-sm cursor-pointer", viewMode === 'list' ? "text-accent bg-accent-soft border-l-3 border-accent" : "text-text-secondary hover:text-text-primary")}
+        >
+          <Calendar size={16} /> <span>{t.projectBoard}</span>
         </div>
         
         <div className="mt-6 px-5 py-2 text-[10px] uppercase tracking-[1.5px] text-text-secondary opacity-50 font-bold">
@@ -3095,14 +3151,24 @@ export default function App() {
                           
                           const hasChildren = tasks.some(t => t.parentId === task.id);
 
+                          const isDraggingThis = dragState?.taskId === task.id;
+                          const previewDd = isDraggingThis ? Math.round((mousePos - dragState!.startX) / dayWidth) : 0;
+                          const previewLeft = isDraggingThis && (dragState!.type === 'move' || dragState!.type === 'resize-left')
+                            ? startOffset + previewDd : startOffset;
+                          const previewWidth = isDraggingThis
+                            ? (dragState!.type === 'resize-right' ? Math.max(1, duration + previewDd)
+                              : dragState!.type === 'resize-left' ? Math.max(1, duration - previewDd)
+                              : duration)
+                            : duration;
+
                           return (
                             <React.Fragment key={idx}>
-                              {dragState?.taskId === task.id && (
-                                <div 
+                              {isDraggingThis && (
+                                <div
                                   className="absolute h-6 rounded-md bg-accent/20 border-2 border-dashed border-accent z-20 pointer-events-none"
                                   style={{
-                                    left: `${(startOffset + (dragState.type === 'move' ? Math.round((mousePos - dragState.startX) / dayWidth) : 0)) * dayWidth}px`,
-                                    width: `${(duration + (dragState.type === 'resize' ? Math.round((mousePos - dragState.startX) / dayWidth) : 0)) * dayWidth - 4}px`,
+                                    left: `${previewLeft * dayWidth}px`,
+                                    width: `${previewWidth * dayWidth - 4}px`,
                                     top: '10px'
                                   }}
                                 />
@@ -3113,14 +3179,41 @@ export default function App() {
                                   e.stopPropagation();
                                   const rect = e.currentTarget.getBoundingClientRect();
                                   const offsetX = e.clientX - rect.left;
-                                  const isResize = rect.width - offsetX < 15;
+                                  const isDeadlineTask = task.baseType === 'deadline';
+                                  let dragType: DragState['type'];
+                                  if (rect.width - offsetX < 15) {
+                                    dragType = 'resize-right';
+                                  } else if (offsetX < 15) {
+                                    dragType = 'resize-left';
+                                  } else {
+                                    dragType = 'move';
+                                  }
+                                  // 非繰り返しのルートタスクはoverridesではなくbaseDate直接更新
+                                  const isNonRecurringRoot = task.recurrence.type === 'none' && !task.parentId;
+                                  const dragOriginalDate = isNonRecurringRoot
+                                    ? undefined
+                                    : (instance as any).originalDate;
+                                  // 締め切り起点タスクはbaseDateが締め切り日なのでinstance.endを使う
+                                  const dragInitialBaseDate = task.baseDate
+                                    || format(isDeadlineTask ? instance.end : instance.start, 'yyyy-MM-dd');
+                                  // サブタスクのoffset（符号付き）を計算
+                                  const isSubtask = !!task.parentId && task.offsetDays !== undefined;
+                                  let initialSignedOffset: number | undefined;
+                                  if (isSubtask) {
+                                    const instOverride = dragOriginalDate ? task.overrides?.[dragOriginalDate] : undefined;
+                                    const effOffsetDays = instOverride?.offsetDays ?? task.offsetDays ?? 0;
+                                    const effOffsetDir = instOverride?.offsetDirection ?? task.offsetDirection;
+                                    initialSignedOffset = effOffsetDir === 'before' ? -effOffsetDays : effOffsetDays;
+                                  }
                                   setDragState({
                                     taskId: task.id,
-                                    originalDate: (instance as any).originalDate,
-                                    type: isResize ? 'resize' : 'move',
+                                    originalDate: dragOriginalDate,
+                                    type: dragType,
                                     startX: e.clientX,
-                                    initialBaseDate: format(instance.start, 'yyyy-MM-dd'),
-                                    initialLeadTime: task.leadTime
+                                    initialBaseDate: dragInitialBaseDate,
+                                    initialLeadTime: task.leadTime,
+                                    isDeadlineTask,
+                                    initialSignedOffset,
                                   });
                                   setMousePos(e.clientX);
                                 }}
@@ -3155,6 +3248,9 @@ export default function App() {
                               >
                                 {!hasChildren && (
                                   <div className="absolute right-0 top-0 bottom-0 w-2 cursor-ew-resize hover:bg-white/20 transition-colors rounded-r-md" />
+                                )}
+                                {!hasChildren && (
+                                  <div className="absolute left-0 top-0 bottom-0 w-2 cursor-ew-resize hover:bg-white/20 transition-colors rounded-l-md" />
                                 )}
                                 {!hasChildren && (
                                   <div className="flex items-center gap-2 w-full overflow-hidden">

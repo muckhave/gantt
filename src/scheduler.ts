@@ -55,17 +55,18 @@ export const calculateTaskInstances = (
       const parentInstances = calculateTaskInstances(parent, parentSearchStart, parentSearchEnd, holidays, allTasks);
       parentInstances.forEach(pInst => {
         const referenceDate = task.parentPoint === 'start' ? pInst.start : pInst.end;
-        const offset = task.offsetDirection === 'before' ? -task.offsetDays! : task.offsetDays!;
-        
         const instOriginalDate = pInst.originalDate || '';
         const override = task.overrides?.[instOriginalDate];
         const mergedForInst = override ? { ...task, ...override } : task;
         
         const currentLeadTime = mergedForInst.leadTime;
-        const targetDate = offset >= 0 
-          ? addBusinessDays(referenceDate, offset, holidays)
-          : subBusinessDays(referenceDate, Math.abs(offset), holidays);
-        
+        const currentOffsetDays = mergedForInst.offsetDays ?? task.offsetDays!;
+        const currentOffsetDirection = mergedForInst.offsetDirection ?? task.offsetDirection;
+        const currentOffset = currentOffsetDirection === 'before' ? -currentOffsetDays : currentOffsetDays;
+        const targetDate = currentOffset >= 0
+          ? addBusinessDays(referenceDate, currentOffset, holidays)
+          : subBusinessDays(referenceDate, Math.abs(currentOffset), holidays);
+
         let start: Date;
         let end: Date;
 
