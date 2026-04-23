@@ -2183,6 +2183,15 @@ export default function App() {
     const startM = startOfMonth(currentMonth);
     const endM = endOfMonth(currentMonth);
 
+    const instanceCache = new Map<string, { start: Date; end: Date; originalDate?: string }[]>();
+    const cachedInstances = (task: Task, viewStart: Date, viewEnd: Date) => {
+      const key = `${task.id}-${viewStart.getTime()}-${viewEnd.getTime()}`;
+      if (instanceCache.has(key)) return instanceCache.get(key)!;
+      const result = calculateTaskInstances(task, viewStart, viewEnd, holidays, tasks);
+      instanceCache.set(key, result);
+      return result;
+    };
+
     const getEntries = (parentId: string | null, level: number, parentInstanceDate?: string): { task: Task; instance: any; level: number; idHash: string }[] => {
       const filtered: Task[] = tasks.filter((t: Task) => t.parentId === parentId);
 
@@ -2192,7 +2201,7 @@ export default function App() {
       const firstInstanceOf = new Map<string, { start: Date; end: Date } | null>();
       filtered.forEach((t: Task) => {
         if (t.isIndefinite) { firstInstanceOf.set(t.id, null); return; }
-        const insts = calculateTaskInstances(t, sortSearchStart, sortSearchEnd, holidays, tasks);
+        const insts = cachedInstances(t, sortSearchStart, sortSearchEnd);
         firstInstanceOf.set(t.id, insts.length > 0 ? insts[0] : null);
       });
       filtered.sort((a: Task, b: Task) => {
@@ -2225,7 +2234,7 @@ export default function App() {
         //   from adjacent months whose child tasks fall in the current month (cross-month sets)
         const searchStart = parentInstanceDate ? addDays(parseISO(parentInstanceDate), -180) : addDays(startM, -90);
         const searchEnd = parentInstanceDate ? addDays(parseISO(parentInstanceDate), 180) : addDays(endM, 90);
-        const allInstances = calculateTaskInstances(task, searchStart, searchEnd, holidays, tasks);
+        const allInstances = cachedInstances(task, searchStart, searchEnd);
 
         // Match instances to the specific parent branch if applicable
         const relevantInstances = parentInstanceDate
@@ -2239,12 +2248,10 @@ export default function App() {
               if (task.offsetDays === undefined && task.parentId && inst.originalDate) {
                 const parentTask = tasks.find(t => t.id === task.parentId);
                 if (parentTask && parentTask.recurrence?.type !== 'none') {
-                  const parentInsts = calculateTaskInstances(
+                  const parentInsts = cachedInstances(
                     parentTask,
                     addDays(parseISO(inst.originalDate), -90),
-                    addDays(parseISO(inst.originalDate), 90),
-                    holidays,
-                    tasks
+                    addDays(parseISO(inst.originalDate), 90)
                   );
                   if (parentInsts.length > 0) {
                     const childDate = parseISO(inst.originalDate);
@@ -2273,12 +2280,10 @@ export default function App() {
               if (!instDate) return false;
 
               return directChildren.some(child => {
-                const childInsts = calculateTaskInstances(
+                const childInsts = cachedInstances(
                   child,
                   addDays(parseISO(instDate), -180),
-                  addDays(parseISO(instDate), 180),
-                  holidays,
-                  tasks
+                  addDays(parseISO(instDate), 180)
                 );
                 // Dynamic children: filter by matching originalDate
                 // Static children (no offsetDays): use their baseDate directly
