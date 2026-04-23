@@ -86,7 +86,7 @@ function tasksToCsv(tasks: any[]): string {
 }
 
 function csvToTasks(csv: string): any[] {
-  const lines = csv.split("\n").filter(l => l.trim());
+  const lines = csv.split(/\r?\n/).filter(l => l.trim());
   if (lines.length <= 1) return [];
   const rows = lines.slice(1);
   return rows.map(row => {
@@ -149,7 +149,7 @@ function holidaysToCsv(holidays: any[]): string {
 }
 
 function csvToHolidays(csv: string): any[] {
-  const lines = csv.split("\n").filter(l => l.trim());
+  const lines = csv.split(/\r?\n/).filter(l => l.trim());
   if (lines.length <= 1) return [];
   const rows = lines.slice(1);
   return rows.map(row => {
@@ -178,7 +178,7 @@ function templatesToCsv(templates: any[]): string {
 }
 
 function csvToTemplates(csv: string): any[] {
-  const lines = csv.split("\n").filter(l => l.trim());
+  const lines = csv.split(/\r?\n/).filter(l => l.trim());
   if (lines.length <= 1) return [];
   const rows = lines.slice(1);
   return rows.map(row => {
