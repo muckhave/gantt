@@ -44,6 +44,26 @@ async function ensureDataDir() {
   }
 }
 
+function normalizeCsv(content: string): string {
+  return content.replace(/\r/g, '');
+}
+
+async function cleanExistingCsvFiles() {
+  const csvFiles = [getFiles().tasks, getFiles().holidays, getFiles().templates];
+  for (const filePath of csvFiles) {
+    try {
+      const data = await fs.readFile(filePath, "utf-8");
+      const cleaned = normalizeCsv(data);
+      if (cleaned !== data) {
+        await fs.writeFile(filePath, cleaned, "utf-8");
+        console.log(`Normalized line endings: ${filePath}`);
+      }
+    } catch {
+      // file doesn't exist yet, skip
+    }
+  }
+}
+
 // CSV Conversion Helpers
 function parseJsonField(s: string): any {
   if (!s) return undefined;
@@ -86,7 +106,7 @@ function tasksToCsv(tasks: any[]): string {
 }
 
 function csvToTasks(csv: string): any[] {
-  const lines = csv.replace(/\r/g, '').split("\n").filter(l => l.trim());
+  const lines = normalizeCsv(csv).split("\n").filter(l => l.trim());
   if (lines.length <= 1) return [];
   const rows = lines.slice(1);
   return rows.map(row => {
@@ -149,7 +169,7 @@ function holidaysToCsv(holidays: any[]): string {
 }
 
 function csvToHolidays(csv: string): any[] {
-  const lines = csv.replace(/\r/g, '').split("\n").filter(l => l.trim());
+  const lines = normalizeCsv(csv).split("\n").filter(l => l.trim());
   if (lines.length <= 1) return [];
   const rows = lines.slice(1);
   return rows.map(row => {
@@ -178,7 +198,7 @@ function templatesToCsv(templates: any[]): string {
 }
 
 function csvToTemplates(csv: string): any[] {
-  const lines = csv.replace(/\r/g, '').split("\n").filter(l => l.trim());
+  const lines = normalizeCsv(csv).split("\n").filter(l => l.trim());
   if (lines.length <= 1) return [];
   const rows = lines.slice(1);
   return rows.map(row => {
@@ -209,6 +229,7 @@ function csvToTemplates(csv: string): any[] {
 async function startServer() {
   await loadConfig();
   await ensureDataDir();
+  await cleanExistingCsvFiles();
   const app = express();
   const PORT = 3000;
 
@@ -241,7 +262,7 @@ async function startServer() {
   });
 
   app.post("/api/tasks", async (req, res) => {
-    await fs.writeFile(getFiles().tasks, tasksToCsv(req.body), "utf-8");
+    await fs.writeFile(getFiles().tasks, normalizeCsv(tasksToCsv(req.body)), "utf-8");
     res.json({ success: true });
   });
 
@@ -258,7 +279,7 @@ async function startServer() {
   });
 
   app.post("/api/holidays", async (req, res) => {
-    await fs.writeFile(getFiles().holidays, holidaysToCsv(req.body), "utf-8");
+    await fs.writeFile(getFiles().holidays, normalizeCsv(holidaysToCsv(req.body)), "utf-8");
     res.json({ success: true });
   });
 
@@ -272,7 +293,7 @@ async function startServer() {
   });
 
   app.post("/api/templates", async (req, res) => {
-    await fs.writeFile(getFiles().templates, templatesToCsv(req.body), "utf-8");
+    await fs.writeFile(getFiles().templates, normalizeCsv(templatesToCsv(req.body)), "utf-8");
     res.json({ success: true });
   });
 
