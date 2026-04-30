@@ -3391,7 +3391,7 @@ export default function App() {
              <div className="w-2 h-2 rounded-full bg-accent" /> {t.activeTasks}: {tasks.filter(t => !t.isCompleted).length}
           </div>
           <div className="ml-auto opacity-50">
-             v1.3.0 {t.brand} Japanese Theme
+             v1.3.0 {t.brand} 
           </div>
         </footer>
         {isStatusManagerOpen && (
