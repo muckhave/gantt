@@ -635,6 +635,7 @@ const TaskRow: React.FC<{
   allTasks: Task[];
   hasChildren: boolean;
   instanceDate?: string;
+  instanceEnd?: Date;
   onToggle: () => void;
   onDelete: (id: string, instanceDate?: string) => void;
   onComplete: (id: string, instanceDate?: string) => void;
@@ -651,6 +652,7 @@ const TaskRow: React.FC<{
   allTasks,
   hasChildren,
   instanceDate,
+  instanceEnd,
   onToggle,
   onDelete,
   onComplete,
@@ -707,11 +709,15 @@ const TaskRow: React.FC<{
           effectiveTask.isCompleted ? "line-through opacity-30 text-[13px] font-medium" : task.parentId ? "text-[13px] font-medium text-text-primary uppercase tracking-tight" : "text-[13px] font-bold text-accent/90 uppercase tracking-tight"
         )}>
           {task.title}
-          {instanceDate && (task.recurrence.type !== 'none' || task.parentId) && (
+          {task.parentId && instanceEnd ? (
+            <span className="text-[10px] text-accent font-bold ml-2 opacity-80 decoration-none inline-block">
+              [{format(instanceEnd, 'MM/dd')}]
+            </span>
+          ) : instanceDate && task.recurrence.type !== 'none' ? (
             <span className="text-[10px] text-accent font-bold ml-2 opacity-80 decoration-none inline-block">
               [{format(parseISO(instanceDate), 'MM/dd')}]
             </span>
-          )}
+          ) : null}
         </span>
         
         {task.description && (
@@ -1934,6 +1940,7 @@ export default function App() {
   const [editChoiceTarget, setEditChoiceTarget] = useState<{ task: Task; originalDate?: string } | null>(null);
   const [pendingDeleteTask, setPendingDeleteTask] = useState<{ task: Task; instanceDate?: string } | null>(null);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('');
+  const [templateTaskName, setTemplateTaskName] = useState<string>('');
   const [templateDeadline, setTemplateDeadline] = useState<string>('');
   const [templateRecType, setTemplateRecType] = useState<RecurrenceType>('none');
   const [templateWeeklyDays, setTemplateWeeklyDays] = useState<number[]>([]);
@@ -2463,7 +2470,7 @@ export default function App() {
       : undefined;
 
     const parentTask = createLocalTask({
-      title: template.name,
+      title: templateTaskName || template.name,
       recurrence: recurrence || { type: 'none' },
       baseDate: format(baseDate, 'yyyy-MM-dd'),
       baseType: template.baseType,
@@ -2554,6 +2561,7 @@ export default function App() {
 
     setIsFormOpen(false);
     setSelectedTemplateId('');
+    setTemplateTaskName('');
     setTemplateBaseDate('');
     setTemplateRecType('none');
     setTemplateWeeklyDays([]);
@@ -3041,6 +3049,7 @@ export default function App() {
                   allTasks={tasks}
                   hasChildren={tasks.some(t => t.parentId === task.id)}
                   instanceDate={instance.originalDate}
+                  instanceEnd={instance.end}
                   onToggle={() => toggleExpand(idHash)}
                   onDelete={(id: string, instanceDate?: string) => {
                     const target = tasks.find((t: Task) => t.id === id);
@@ -3555,7 +3564,11 @@ export default function App() {
                       <label className="w-32 flex-shrink-0 text-[10px] font-bold uppercase text-text-secondary tracking-widest">{t.selectTemplate}</label>
                       <select 
                         value={selectedTemplateId}
-                        onChange={e => setSelectedTemplateId(e.target.value)}
+                        onChange={e => {
+                          setSelectedTemplateId(e.target.value);
+                          const tmpl = templates.find((tmp: TaskTemplateSet) => tmp.id === e.target.value);
+                          setTemplateTaskName(tmpl ? tmpl.name : '');
+                        }}
                         className="flex-1 bg-bg border border-border rounded-lg px-4 py-3 text-xs text-text-primary focus:outline-none focus:border-accent appearance-none cursor-pointer"
                       >
                         <option value="">{t.selectTemplate}</option>
@@ -3567,13 +3580,26 @@ export default function App() {
 
                     {selectedTemplateId && (
                       <div className="flex items-center gap-6 animate-in fade-in slide-in-from-top-2 duration-300">
+                        <label className="w-32 flex-shrink-0 text-[10px] font-bold uppercase text-text-secondary tracking-widest">{t.title}</label>
+                        <input
+                          type="text"
+                          value={templateTaskName}
+                          onChange={(e: React.ChangeEvent<HTMLInputElement>) => setTemplateTaskName(e.target.value)}
+                          className="flex-1 bg-bg border border-border rounded-lg px-4 py-3 text-xs text-text-primary focus:outline-none focus:border-accent"
+                          placeholder={t.titlePlaceholder}
+                        />
+                      </div>
+                    )}
+
+                    {selectedTemplateId && (
+                      <div className="flex items-center gap-6 animate-in fade-in slide-in-from-top-2 duration-300">
                         <label className={cn(
                           "w-32 flex-shrink-0 text-[10px] font-bold uppercase text-text-secondary tracking-widest transition-opacity",
                           templateRecType !== 'none' && "opacity-30"
                         )}>
                           {(templates.find(t => t.id === selectedTemplateId)?.baseType === 'deadline') ? t.deadline : t.startPoint}
                         </label>
-                        <DatePicker 
+                        <DatePicker
                           value={templateBaseDate}
                           disabled={templateRecType !== 'none'}
                           onChange={setTemplateBaseDate}
